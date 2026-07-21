@@ -1,0 +1,242 @@
+# =============================================================================
+# OmniEngine — Docker Compose (Development & Staging)
+# =============================================================================
+# Usage:
+#   cp .env.example .env  # Fill in API keys
+#   docker compose up -d
+#   docker compose logs -f backend
+# =============================================================================
+
+services:
+  # ---------------------------------------------------------------------------
+  # Backend API — FastAPI + LangGraph Orchestrator
+  # ---------------------------------------------------------------------------
+  backend:
+    build:
+      context: .
+      dockerfile: infra/docker/Dockerfile.backend
+      target: production
+    container_name: omni-backend
+    restart: unless-stopped
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+    env_file:
+      - .env
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-omni}:${POSTGRES_PASSWORD:-omni_dev_password}@postgres:5432/${POSTGRES_DB:-omniengine}
+      - REDIS_URL=redis://redis:6379/0
+      - QDRANT_HOST=qdrant
+      - QDRANT_PORT=6333
+      - QDRANT_GRPC_PORT=6334
+      - ENVIRONMENT=development
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro  # Sandbox code execution
+      - backend_tmp:/tmp/omni-sandbox  # Ephemeral sandbox workspace
+    networks:
+      - omni-network
+    healthcheck:
+      test: ["CMD", "python", "-c", "import httpx; r = httpx.get('http://localhost:8000/health'); r.raise_for_status()"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 45s
+    deploy:
+      resources:
+        limits:
+          cpus: "4.0"
+          memory: 4G
+        reservations:
+          cpus: "1.0"
+          memory: 1G
+
+  # ---------------------------------------------------------------------------
+  # Frontend — Next.js 14 (App Router)
+  # ---------------------------------------------------------------------------
+  frontend:
+    build:
+      context: .
+      dockerfile: infra/docker/Dockerfile.frontend
+      target: production
+    container_name: omni-frontend
+    restart: unless-stopped
+    ports:
+      - "${FRONTEND_PORT:-3000}:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:${BACKEND_PORT:-8000}
+      - NEXT_PUBLIC_WS_URL=ws://localhost:${BACKEND_PORT:-8000}
+      - NODE_ENV=production
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - omni-network
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3000').then(r => { if (!r.ok) process.exit(1) }).catch(() => process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 2G
+        reservations:
+          cpus: "0.5"
+          memory: 512M
+
+  # ---------------------------------------------------------------------------
+  # PostgreSQL 16 — Relational data, user sessions, memory summaries
+  # ---------------------------------------------------------------------------
+  postgres:
+    image: postgres:16-alpine
+    container_name: omni-postgres
+    restart: unless-stopped
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-omniengine}
+      POSTGRES_USER: ${POSTGRES_USER:-omni}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-omni_dev_password}
+      POSTGRES_INITDB_ARGS: "--auth-host=scram-sha-256"
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - omni-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-omni} -d ${POSTGRES_DB:-omniengine}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 2G
+        reservations:
+          cpus: "0.5"
+          memory: 512M
+    command: >
+      postgres
+        -c shared_buffers=256MB
+        -c effective_cache_size=768MB
+        -c work_mem=16MB
+        -c maintenance_work_mem=128MB
+        -c max_connections=200
+        -c log_min_duration_statement=1000
+        -c log_statement=ddl
+
+  # ---------------------------------------------------------------------------
+  # Redis 7 — Session cache, PubSub, rate limiting, ephemeral state
+  # ---------------------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    container_name: omni-redis
+    restart: unless-stopped
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - omni-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
+        reservations:
+          cpus: "0.25"
+          memory: 128M
+    command: >
+      redis-server
+        --appendonly yes
+        --appendfsync everysec
+        --maxmemory 256mb
+        --maxmemory-policy allkeys-lru
+        --save 60 1000
+        --save 300 100
+        --tcp-keepalive 60
+        --timeout 300
+
+  # ---------------------------------------------------------------------------
+  # Qdrant — Vector database for RAG and semantic memory
+  # ---------------------------------------------------------------------------
+  qdrant:
+    image: qdrant/qdrant:v1.12.1
+    container_name: omni-qdrant
+    restart: unless-stopped
+    ports:
+      - "${QDRANT_REST_PORT:-6333}:6333"   # REST API
+      - "${QDRANT_GRPC_PORT:-6334}:6334"   # gRPC
+    volumes:
+      - qdrant_data:/qdrant/storage
+      - qdrant_snapshots:/qdrant/snapshots
+    networks:
+      - omni-network
+    environment:
+      - QDRANT__SERVICE__GRPC_PORT=6334
+      - QDRANT__SERVICE__HTTP_PORT=6333
+      - QDRANT__STORAGE__STORAGE_PATH=/qdrant/storage
+      - QDRANT__STORAGE__SNAPSHOTS_PATH=/qdrant/snapshots
+      - QDRANT__STORAGE__ON_DISK_PAYLOAD=true
+      - QDRANT__LOG_LEVEL=INFO
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/localhost/6333 && echo -e \"GET /healthz HTTP/1.1\\r\\nHost: localhost\\r\\n\\r\\n\" >&3 && cat <&3 | grep -q 200'"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 2G
+        reservations:
+          cpus: "0.5"
+          memory: 512M
+
+# =============================================================================
+# Persistent Volumes
+# =============================================================================
+volumes:
+  postgres_data:
+    driver: local
+    name: omni-postgres-data
+  redis_data:
+    driver: local
+    name: omni-redis-data
+  qdrant_data:
+    driver: local
+    name: omni-qdrant-data
+  qdrant_snapshots:
+    driver: local
+    name: omni-qdrant-snapshots
+  backend_tmp:
+    driver: local
+    name: omni-backend-tmp
+
+# =============================================================================
+# Network
+# =============================================================================
+networks:
+  omni-network:
+    driver: bridge
+    name: omni-network
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16

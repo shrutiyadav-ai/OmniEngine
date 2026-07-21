@@ -1,0 +1,497 @@
+# OmniEngine — Production-Grade Multi-Model Multi-Agent AI System
+
+A Tier-1, production-ready conversational AI platform with dynamic model routing, agentic workflows, RAG memory, safety guardrails, and a streaming Next.js frontend.
+
+## Proposed Architecture
+
+```mermaid
+graph TB
+    subgraph Frontend["Frontend (Next.js 14)"]
+        UI[Chat UI] --> SSE[SSE Stream Handler]
+        UI --> MD[Markdown Renderer]
+        UI --> Charts[Chart Components]
+    end
+
+    subgraph API["API Layer (FastAPI)"]
+        LB[Load Balancer] --> Auth[Auth Middleware]
+        Auth --> Router[Model Router]
+        Router --> Guard[Input Guardrails]
+    end
+
+    subgraph Agents["Agent Layer (LangGraph)"]
+        Orch[Orchestrator / Supervisor] --> Plan[Planner Node]
+        Plan --> Memory[Memory Agent]
+        Plan --> Tools[Tool Calling Agent]
+        Plan --> RAG[RAG Agent]
+        Plan --> Eval[Evaluator Node]
+    end
+
+    subgraph Infra["Data & Infrastructure"]
+        PG[(PostgreSQL)]
+        RD[(Redis)]
+        QD[(Qdrant)]
+        MCP[MCP Tool Registry]
+    end
+
+    SSE <-->|WSS/SSE| LB
+    Guard --> Orch
+    Memory --> PG
+    Memory --> RD
+    RAG --> QD
+    Tools --> MCP
+    Eval --> Orch
+```
+
+---
+
+## Proposed Changes
+
+The project is organized as a monorepo with three top-level domains: `backend/`, `frontend/`, and `infra/`. Below is the full breakdown grouped by component.
+
+---
+
+### Infrastructure & Configuration (Phase 1)
+
+Root-level configuration, Docker, Kubernetes, and environment setup.
+
+#### [NEW] [docker-compose.yml](file:///c:/Users/Asus/Desktop/OmniEngine/docker-compose.yml)
+- Multi-service compose: FastAPI backend, Next.js frontend, PostgreSQL 16, Redis 7, Qdrant vector DB
+- Health checks, volume mounts, network isolation
+- Environment variable injection from `.env`
+
+#### [NEW] [.env.example](file:///c:/Users/Asus/Desktop/OmniEngine/.env.example)
+- Template for all required API keys and connection strings
+- OpenAI, Anthropic, Google GenAI, Tavily, database URLs
+
+#### [NEW] [pyproject.toml](file:///c:/Users/Asus/Desktop/OmniEngine/pyproject.toml)
+- Python 3.12+ project config with all backend dependencies
+- FastAPI, LangGraph, LangChain, SQLAlchemy, Redis, Qdrant, Pydantic, etc.
+
+#### [NEW] [infra/docker/Dockerfile.backend](file:///c:/Users/Asus/Desktop/OmniEngine/infra/docker/Dockerfile.backend)
+- Multi-stage Python build, non-root user, health check endpoint
+
+#### [NEW] [infra/docker/Dockerfile.frontend](file:///c:/Users/Asus/Desktop/OmniEngine/infra/docker/Dockerfile.frontend)
+- Multi-stage Node.js build for Next.js, standalone output
+
+#### [NEW] [infra/docker/Dockerfile.sandbox](file:///c:/Users/Asus/Desktop/OmniEngine/infra/docker/Dockerfile.sandbox)
+- Ephemeral Python sandbox for code execution tool, network-isolated
+
+#### [NEW] [infra/k8s/helm/Chart.yaml](file:///c:/Users/Asus/Desktop/OmniEngine/infra/k8s/helm/Chart.yaml)
+- Helm chart metadata for OmniEngine deployment
+
+#### [NEW] [infra/k8s/helm/values.yaml](file:///c:/Users/Asus/Desktop/OmniEngine/infra/k8s/helm/values.yaml)
+- Configurable replicas, resource limits, image tags, secrets references
+
+#### [NEW] [infra/k8s/helm/templates/deployment.yaml](file:///c:/Users/Asus/Desktop/OmniEngine/infra/k8s/helm/templates/deployment.yaml)
+- Backend deployment with HPA, liveness/readiness probes
+
+#### [NEW] [infra/k8s/helm/templates/service.yaml](file:///c:/Users/Asus/Desktop/OmniEngine/infra/k8s/helm/templates/service.yaml)
+- ClusterIP services for backend and frontend
+
+#### [NEW] [infra/k8s/helm/templates/ingress.yaml](file:///c:/Users/Asus/Desktop/OmniEngine/infra/k8s/helm/templates/ingress.yaml)
+- Ingress with TLS termination, path-based routing
+
+#### [NEW] [infra/k8s/helm/templates/secrets.yaml](file:///c:/Users/Asus/Desktop/OmniEngine/infra/k8s/helm/templates/secrets.yaml)
+- Kubernetes Secrets for API keys, DB credentials
+
+#### [NEW] [infra/k8s/helm/templates/hpa.yaml](file:///c:/Users/Asus/Desktop/OmniEngine/infra/k8s/helm/templates/hpa.yaml)
+- Horizontal Pod Autoscaler targeting CPU/memory
+
+---
+
+### Backend Core (Phase 2)
+
+Core application bootstrap, configuration, auth, and database connections.
+
+#### [NEW] [backend/\_\_init\_\_.py](file:///c:/Users/Asus/Desktop/OmniEngine/backend/__init__.py)
+
+#### [NEW] [backend/main.py](file:///c:/Users/Asus/Desktop/OmniEngine/backend/main.py)
+- FastAPI app factory with lifespan management
+- CORS, middleware, router mounting
+- Startup: initialize DB pools (SQLAlchemy async), Redis, Qdrant client
+- Shutdown: graceful connection cleanup
+
+#### [NEW] [backend/core/\_\_init\_\_.py](file:///c:/Users/Asus/Desktop/OmniEngine/backend/core/__init__.py)
+
+#### [NEW] [backend/core/config.py](file:///c:/Users/Asus/Desktop/OmniEngine/backend/core/config.py)
+- Pydantic `BaseSettings` with env file loading
+- All API keys, DB URLs, feature flags, model configs
+- Tier-based model routing thresholds
+
+#### [NEW] [backend/core/security.py](file:///c:/Users/Asus/Desktop/OmniEngine/backend/core/security.py)
+- JWT token generation/validation (PyJWT)
+- API key authentication middleware
+- Rate limiting via Redis sliding window
+
+#### [NEW] [backend/core/database.py](file:///c:/Users/Asus/Desktop/OmniEngine/backend/core/database.py)
+- Async SQLAlchemy engine + session factory
+- Connection pool configuration (pool_size, max_overflow, pool_recycle)
+- Session dependency for FastAPI
+
+#### [NEW] [backend/core/redis_client.py](file:///c:/Users/Asus/Desktop/OmniEngine/backend/core/redis_client.py)
+- Async Redis connection pool (redis.asyncio)
+- Session cache operations, PubSub helpers
+- TTL-based key management
+
+#### [NEW] [backend/core/exceptions.py](file:///c:/Users/Asus/Desktop/OmniEngine/backend/core/exceptions.py)
+- Custom exception hierarchy: `OmniEngineError`, `ModelRoutingError`, `ToolExecutionError`, `SafetyViolationError`
+- Global exception handlers registered with FastAPI
+
+#### [NEW] [backend/core/logging_config.py](file:///c:/Users/Asus/Desktop/OmniEngine/backend/core/logging_config.py)
+- Structured JSON logging (structlog)
+- Correlation ID propagation
+- Log levels per-module configuration
+
+---
+
+### Backend API Routes (Phase 2)
+
+REST and SSE endpoints for chat, sessions, health.
+
+#### [NEW] [backend/api/\_\_init\_\_.py](file:///c:/Users/Asus/Desktop/OmniEngine/backend/api/__init__.py)
+
+#### [NEW] [backend/api/routes/\_\_init\_\_.py](file:///c:/Users/Asus/Desktop/OmniEngine/backend/api/routes/__init__.py)
+
+#### [NEW] [backend/api/routes/chat.py](file:///c:/Users/Asus/Desktop/OmniEngine/backend/api/routes/chat.py)
+- `POST /api/v1/chat` — SSE streaming endpoint
+- Accepts `ChatRequest` (session_id, message, attachments, model_preference)
+- Orchestrates: guardrails → router → LangGraph → stream tokens
+- Error recovery: retries with fallback model on provider failure
+
+#### [NEW] [backend/api/routes/sessions.py](file:///c:/Users/Asus/Desktop/OmniEngine/backend/api/routes/sessions.py)
+- `POST /api/v1/sessions` — create new session
+- `GET /api/v1/sessions/{id}` — retrieve session history
+- `GET /api/v1/sessions` — list user sessions
+- `DELETE /api/v1/sessions/{id}` — soft delete
+
+#### [NEW] [backend/api/routes/health.py](file:///c:/Users/Asus/Desktop/OmniEngine/backend/api/routes/health.py)
+- `GET /health` — basic liveness
+- `GET /health/ready` — readiness (checks DB, Redis, Qdrant)
+
+#### [NEW] [backend/api/schemas.py](file:///c:/Users/Asus/Desktop/OmniEngine/backend/api/schemas.py)
+- Pydantic v2 request/response models
+- `ChatRequest`, `ChatResponse`, `SessionResponse`, `StreamEvent`, `ErrorResponse`
+- `Attachment` model (type, url, content)
+
+#### [NEW] [backend/api/dependencies.py](file:///c:/Users/Asus/Desktop/OmniEngine/backend/api/dependencies.py)
+- FastAPI dependency injection: DB session, Redis client, auth user, rate limiter
+
+---
+
+### Backend Agents — LangGraph Orchestrator (Phase 3)
+
+The cognitive core: supervisor, planner, workers, evaluator.
+
+#### [NEW] [backend/agents/\_\_init\_\_.py](file:///c:/Users/Asus/Desktop/OmniEngine/backend/agents/__init__.py)
+
+#### [NEW] [backend/agents/state.py](file:///c:/Users/Asus/Desktop/OmniEngine/backend/agents/state.py)
+- `AgentState` TypedDict with all fields from the blueprint
+- Message annotations for LangGraph reducers
+- Helper functions for state manipulation
+
+#### [NEW] [backend/agents/orchestrator.py](file:///c:/Users/Asus/Desktop/OmniEngine/backend/agents/orchestrator.py)
+- `build_graph()` function returning compiled `StateGraph`
+- Nodes: `supervisor`, `planner`, `tool_executor`, `rag_retriever`, `memory_manager`, `evaluator`, `response_formatter`
+- Conditional edges based on plan steps and tool results
+- Recursion limit = 25, with graceful degradation
+- Checkpointing via Redis-backed saver
+
+#### [NEW] [backend/agents/nodes/\_\_init\_\_.py](file:///c:/Users/Asus/Desktop/OmniEngine/backend/agents/nodes/__init__.py)
+
+#### [NEW] [backend/agents/nodes/supervisor.py](file:///c:/Users/Asus/Desktop/OmniEngine/backend/agents/nodes/supervisor.py)
+- Analyzes user intent, generates `TaskPlan` (JSON array of steps)
+- Complexity scoring to route between small/large models
+- Strict separation of `internal_monologue` vs `user_facing_response`
+
+#### [NEW] [backend/agents/nodes/planner.py](file:///c:/Users/Asus/Desktop/OmniEngine/backend/agents/nodes/planner.py)
+- Plan-and-Solve decomposition
+- Generates ordered task list with tool requirements
+- Re-planning on 3 consecutive tool failures
+
+#### [NEW] [backend/agents/nodes/tool_executor.py](file:///c:/Users/Asus/Desktop/OmniEngine/backend/agents/nodes/tool_executor.py)
+- Validates tool_calls against Pydantic schemas
+- Dispatches to MCP tool registry
+- Timeout handling, retry logic, error capture
+
+#### [NEW] [backend/agents/nodes/rag_retriever.py](file:///c:/Users/Asus/Desktop/OmniEngine/backend/agents/nodes/rag_retriever.py)
+- Hybrid search: dense (Qdrant) + sparse (BM25)
+- Top-K retrieval with relevance scoring
+- Context injection into system prompt
+
+#### [NEW] [backend/agents/nodes/evaluator.py](file:///c:/Users/Asus/Desktop/OmniEngine/backend/agents/nodes/evaluator.py)
+- Confidence scoring of generated responses
+- Hallucination detection heuristics
+- Triggers "not entirely certain" disclaimers when confidence < 0.6
+- Loops back to planner if evaluation fails
+
+#### [NEW] [backend/agents/model_router.py](file:///c:/Users/Asus/Desktop/OmniEngine/backend/agents/model_router.py)
+- Dynamic model selection: OpenAI, Anthropic, Google GenAI
+- Routing factors: token count, task complexity, vision requirements, API latency
+- Fallback chains: primary → secondary → tertiary
+- Latency tracking per-provider (exponential moving average)
+
+#### [NEW] [backend/agents/prompts.py](file:///c:/Users/Asus/Desktop/OmniEngine/backend/agents/prompts.py)
+- All system prompts: supervisor, planner, evaluator, safety
+- Anti-jailbreak directives
+- Plan generation template
+- Response formatting instructions
+
+---
+
+### Backend Memory System (Phase 3)
+
+Context management, summarization, entity extraction.
+
+#### [NEW] [backend/memory/\_\_init\_\_.py](file:///c:/Users/Asus/Desktop/OmniEngine/backend/memory/__init__.py)
+
+#### [NEW] [backend/memory/context_manager.py](file:///c:/Users/Asus/Desktop/OmniEngine/backend/memory/context_manager.py)
+- Token counting (tiktoken) for conversation history
+- Rolling buffer: keep last N messages raw
+- 70% threshold trigger for background summarization
+- Sliding window with priority retention (system msgs always kept)
+
+#### [NEW] [backend/memory/summarizer.py](file:///c:/Users/Asus/Desktop/OmniEngine/backend/memory/summarizer.py)
+- Async background summarization of older messages
+- Entity extraction (people, dates, preferences)
+- Stores summaries to Postgres, embeddings to Qdrant
+
+#### [NEW] [backend/memory/vector_store.py](file:///c:/Users/Asus/Desktop/OmniEngine/backend/memory/vector_store.py)
+- Qdrant client wrapper with collection management
+- Upsert/search operations with metadata filtering
+- Embedding generation (OpenAI `text-embedding-3-small`)
+
+#### [NEW] [backend/memory/models.py](file:///c:/Users/Asus/Desktop/OmniEngine/backend/memory/models.py)
+- SQLAlchemy ORM models: `User`, `Session`, `Message`, `MemorySummary`, `EntityMemory`
+- Alembic migration support
+
+---
+
+### Backend Tools — MCP Registry (Phase 4)
+
+Tool definitions with Pydantic schemas and MCP protocol.
+
+#### [NEW] [backend/tools/\_\_init\_\_.py](file:///c:/Users/Asus/Desktop/OmniEngine/backend/tools/__init__.py)
+
+#### [NEW] [backend/tools/registry.py](file:///c:/Users/Asus/Desktop/OmniEngine/backend/tools/registry.py)
+- Central tool registry with discovery and validation
+- MCP-compatible tool manifest generation
+- Dynamic tool enable/disable per session
+
+#### [NEW] [backend/tools/web_search.py](file:///c:/Users/Asus/Desktop/OmniEngine/backend/tools/web_search.py)
+- Tavily API integration for real-time web search
+- Pydantic schema: `WebSearchInput(query, max_results, search_depth)`
+- Result formatting with source citations
+
+#### [NEW] [backend/tools/code_interpreter.py](file:///c:/Users/Asus/Desktop/OmniEngine/backend/tools/code_interpreter.py)
+- Docker-based ephemeral sandbox execution
+- Pydantic schema: `CodeExecutionInput(code, language, timeout_seconds)`
+- stdout/stderr capture, file output handling
+- Network isolation, resource limits (CPU/memory/time)
+
+#### [NEW] [backend/tools/vision_analyzer.py](file:///c:/Users/Asus/Desktop/OmniEngine/backend/tools/vision_analyzer.py)
+- Multi-model vision: GPT-4o, Gemini 1.5 Pro
+- Pydantic schema: `VisionInput(image_url, prompt, detail_level)`
+- Image parsing, OCR, chart/diagram analysis
+
+#### [NEW] [backend/tools/calendar_agent.py](file:///c:/Users/Asus/Desktop/OmniEngine/backend/tools/calendar_agent.py)
+- Google/MS Graph Calendar API integration
+- Pydantic schema: `CalendarInput(action, event_details, time_range)`
+- OAuth2 token management, event CRUD
+
+---
+
+### Backend Safety & Guardrails (Phase 4)
+
+Input/output moderation, PII redaction, content filtering.
+
+#### [NEW] [backend/safety/\_\_init\_\_.py](file:///c:/Users/Asus/Desktop/OmniEngine/backend/safety/__init__.py)
+
+#### [NEW] [backend/safety/input_guard.py](file:///c:/Users/Asus/Desktop/OmniEngine/backend/safety/input_guard.py)
+- Prompt injection detection (classifier-based)
+- Jailbreak pattern matching
+- Content category classification (violence, self-harm, etc.)
+
+#### [NEW] [backend/safety/output_guard.py](file:///c:/Users/Asus/Desktop/OmniEngine/backend/safety/output_guard.py)
+- Response content filtering
+- Confidence score evaluation
+- Fact verification triggers for critical domains
+
+#### [NEW] [backend/safety/pii_redactor.py](file:///c:/Users/Asus/Desktop/OmniEngine/backend/safety/pii_redactor.py)
+- Regex + ML-based PII detection (emails, SSNs, phone numbers, credit cards)
+- Redaction before telemetry logging
+- Configurable sensitivity levels
+
+---
+
+### Backend Telemetry (Phase 4)
+
+Observability, metrics, cost tracking.
+
+#### [NEW] [backend/telemetry/\_\_init\_\_.py](file:///c:/Users/Asus/Desktop/OmniEngine/backend/telemetry/__init__.py)
+
+#### [NEW] [backend/telemetry/metrics.py](file:///c:/Users/Asus/Desktop/OmniEngine/backend/telemetry/metrics.py)
+- Token usage tracking per-model, per-session
+- Latency histograms (TTFT, total generation time)
+- Cost estimation per request
+- Persistence to Postgres analytics table
+
+---
+
+### Frontend — Next.js Chat Interface (Phase 5)
+
+#### [NEW] [frontend/package.json](file:///c:/Users/Asus/Desktop/OmniEngine/frontend/package.json)
+- Next.js 14, React 18, TailwindCSS, Recharts, react-markdown, remark-gfm, rehype-highlight
+
+#### [NEW] [frontend/next.config.js](file:///c:/Users/Asus/Desktop/OmniEngine/frontend/next.config.js)
+- Standalone output, API proxy rewrites
+
+#### [NEW] [frontend/tailwind.config.ts](file:///c:/Users/Asus/Desktop/OmniEngine/frontend/tailwind.config.ts)
+- Custom theme: dark mode, glassmorphism utilities, animation keyframes
+
+#### [NEW] [frontend/tsconfig.json](file:///c:/Users/Asus/Desktop/OmniEngine/frontend/tsconfig.json)
+
+#### [NEW] [frontend/postcss.config.js](file:///c:/Users/Asus/Desktop/OmniEngine/frontend/postcss.config.js)
+
+#### [NEW] [frontend/src/app/globals.css](file:///c:/Users/Asus/Desktop/OmniEngine/frontend/src/app/globals.css)
+- Global styles, CSS variables for theming, custom scrollbar, glassmorphism classes, animation utilities
+
+#### [NEW] [frontend/src/app/layout.tsx](file:///c:/Users/Asus/Desktop/OmniEngine/frontend/src/app/layout.tsx)
+- Root layout with Inter/Outfit fonts, metadata, providers
+
+#### [NEW] [frontend/src/app/page.tsx](file:///c:/Users/Asus/Desktop/OmniEngine/frontend/src/app/page.tsx)
+- Landing/redirect to chat
+
+#### [NEW] [frontend/src/app/chat/page.tsx](file:///c:/Users/Asus/Desktop/OmniEngine/frontend/src/app/chat/page.tsx)
+- Main chat interface page
+
+#### [NEW] [frontend/src/components/chat/ChatContainer.tsx](file:///c:/Users/Asus/Desktop/OmniEngine/frontend/src/components/chat/ChatContainer.tsx)
+- Full chat layout: sidebar, message area, input
+- Session management, new chat creation
+
+#### [NEW] [frontend/src/components/chat/MessageList.tsx](file:///c:/Users/Asus/Desktop/OmniEngine/frontend/src/components/chat/MessageList.tsx)
+- Virtualized message rendering
+- Auto-scroll, message grouping
+
+#### [NEW] [frontend/src/components/chat/MessageBubble.tsx](file:///c:/Users/Asus/Desktop/OmniEngine/frontend/src/components/chat/MessageBubble.tsx)
+- User/Assistant message styling
+- Typing indicator, tool status badges
+- Copy, regenerate actions
+
+#### [NEW] [frontend/src/components/chat/ChatInput.tsx](file:///c:/Users/Asus/Desktop/OmniEngine/frontend/src/components/chat/ChatInput.tsx)
+- Auto-resizing textarea, file attachment, model selector
+- Submit on Enter, Shift+Enter for newline
+
+#### [NEW] [frontend/src/components/chat/Sidebar.tsx](file:///c:/Users/Asus/Desktop/OmniEngine/frontend/src/components/chat/Sidebar.tsx)
+- Session history list, search, new chat button
+- Collapsible on mobile
+
+#### [NEW] [frontend/src/components/markdown/MarkdownRenderer.tsx](file:///c:/Users/Asus/Desktop/OmniEngine/frontend/src/components/markdown/MarkdownRenderer.tsx)
+- react-markdown with remark-gfm, rehype-highlight
+- Custom renderers: code blocks (with copy button), tables, links
+- Detects ` ```chart ` fenced blocks → renders Recharts
+
+#### [NEW] [frontend/src/components/markdown/CodeBlock.tsx](file:///c:/Users/Asus/Desktop/OmniEngine/frontend/src/components/markdown/CodeBlock.tsx)
+- Syntax highlighted code with language tag, line numbers, copy button
+
+#### [NEW] [frontend/src/components/markdown/ChartRenderer.tsx](file:///c:/Users/Asus/Desktop/OmniEngine/frontend/src/components/markdown/ChartRenderer.tsx)
+- Parses JSON chart config from ` ```chart ` blocks
+- Renders Bar, Line, Pie, Area charts via Recharts
+
+#### [NEW] [frontend/src/components/ui/ThinkingIndicator.tsx](file:///c:/Users/Asus/Desktop/OmniEngine/frontend/src/components/ui/ThinkingIndicator.tsx)
+- Animated "thinking" state with tool status messages
+- "Searching the web...", "Analyzing image...", etc.
+
+#### [NEW] [frontend/src/lib/api.ts](file:///c:/Users/Asus/Desktop/OmniEngine/frontend/src/lib/api.ts)
+- API client: session CRUD, SSE stream handler
+- `streamChat()` using EventSource/fetch with ReadableStream
+- Error handling, retry logic
+
+#### [NEW] [frontend/src/lib/hooks.ts](file:///c:/Users/Asus/Desktop/OmniEngine/frontend/src/lib/hooks.ts)
+- `useChat()` hook: manages messages, streaming state, tool status
+- `useSessions()` hook: session CRUD with optimistic updates
+- `useSSE()` hook: generic SSE connection management
+
+#### [NEW] [frontend/src/lib/types.ts](file:///c:/Users/Asus/Desktop/OmniEngine/frontend/src/lib/types.ts)
+- TypeScript interfaces: `Message`, `Session`, `StreamEvent`, `ToolStatus`, `ChatState`
+
+---
+
+### Tests (Phase 6)
+
+#### [NEW] [backend/tests/\_\_init\_\_.py](file:///c:/Users/Asus/Desktop/OmniEngine/backend/tests/__init__.py)
+
+#### [NEW] [backend/tests/conftest.py](file:///c:/Users/Asus/Desktop/OmniEngine/backend/tests/conftest.py)
+- Pytest fixtures: async client, mock DB, mock Redis, mock LLM responses
+
+#### [NEW] [backend/tests/test_schemas.py](file:///c:/Users/Asus/Desktop/OmniEngine/backend/tests/test_schemas.py)
+- Pydantic schema validation for all tool inputs, API requests/responses
+
+#### [NEW] [backend/tests/test_model_router.py](file:///c:/Users/Asus/Desktop/OmniEngine/backend/tests/test_model_router.py)
+- Model selection logic under various conditions
+
+#### [NEW] [backend/tests/test_safety.py](file:///c:/Users/Asus/Desktop/OmniEngine/backend/tests/test_safety.py)
+- Injection detection, PII redaction, output filtering
+
+#### [NEW] [backend/tests/test_memory.py](file:///c:/Users/Asus/Desktop/OmniEngine/backend/tests/test_memory.py)
+- Context window management, summarization triggers
+
+---
+
+## Phased Execution Order
+
+| Phase | Domain | Key Deliverables | Est. Files |
+|-------|--------|-----------------|------------|
+| 1 | Infrastructure | Docker, K8s, config, env | ~15 |
+| 2 | Core Backend | FastAPI app, routes, DB, Redis, auth | ~12 |
+| 3 | Agents & Memory | LangGraph orchestrator, nodes, memory, RAG | ~14 |
+| 4 | Tools & Safety | MCP tools, guardrails, PII, telemetry | ~10 |
+| 5 | Frontend | Next.js chat UI, streaming, markdown | ~18 |
+| 6 | Tests | Unit tests, fixtures | ~6 |
+| **Total** | | | **~75 files** |
+
+---
+
+## User Review Required
+
+> [!IMPORTANT]
+> This is a **~75-file codebase**. Full generation will be done in phases. Each phase builds on the previous one. I will write all production-ready code — no placeholders.
+
+> [!WARNING]
+> **API Keys Required**: The system needs API keys for OpenAI, Anthropic, Google GenAI, and Tavily. These will be configured via `.env` file. The code will gracefully degrade if keys are missing.
+
+> [!IMPORTANT]
+> **Vector DB Choice**: The plan uses **Qdrant** (self-hosted via Docker) as the primary vector DB. Pinecone support can be added as an alternative. Confirm if Qdrant is acceptable or if you prefer Pinecone.
+
+## Open Questions
+
+> [!IMPORTANT]
+> **Authentication Strategy**: The plan includes JWT-based auth with API key middleware. Do you want a full user registration/login flow, or is API-key-only auth sufficient for the initial build?
+
+> [!IMPORTANT]
+> **Database Migrations**: Should I include Alembic migration files for PostgreSQL schema management, or is the ORM model definition sufficient for now?
+
+> [!NOTE]
+> **Code Execution Sandbox**: The code interpreter tool uses Docker-in-Docker for sandboxing. In a K8s environment, this would use a sidecar pattern. For local dev, it uses the Docker socket. This is a security-sensitive component — confirm you want full sandbox implementation.
+
+---
+
+## Verification Plan
+
+### Automated Tests
+```bash
+# Backend unit tests
+cd backend && python -m pytest tests/ -v --tb=short
+
+# Frontend type checking
+cd frontend && npx tsc --noEmit
+
+# Docker compose validation
+docker-compose config --quiet
+```
+
+### Manual Verification
+- Start full stack with `docker-compose up`
+- Open frontend at `http://localhost:3000`
+- Send a chat message and verify SSE streaming works end-to-end
+- Test tool invocations (web search, vision) if API keys are configured
+- Verify session persistence across page refreshes

@@ -1,0 +1,78 @@
+# =============================================================================
+# OmniEngine Frontend — Multi-Stage Dockerfile (Next.js 14)
+# =============================================================================
+# Build: docker build -f infra/docker/Dockerfile.frontend -t omniengine/frontend .
+# Run:   docker run -p 3000:3000 omniengine/frontend
+# =============================================================================
+
+# ---------------------------------------------------------------------------
+# Stage 1: Dependencies — Install Node packages (cached layer)
+# ---------------------------------------------------------------------------
+FROM node:20-alpine AS dependencies
+
+RUN apk add --no-cache libc6-compat
+
+WORKDIR /app
+
+# Copy dependency manifests for layer caching
+COPY frontend/package.json frontend/package-lock.json* ./
+
+# Install dependencies with clean install for reproducibility
+RUN npm ci --prefer-offline 2>/dev/null || npm install --prefer-offline
+
+# ---------------------------------------------------------------------------
+# Stage 2: Builder — Build the Next.js application
+# ---------------------------------------------------------------------------
+FROM node:20-alpine AS builder
+
+WORKDIR /app
+
+# Copy dependencies from previous stage
+COPY --from=dependencies /app/node_modules ./node_modules
+
+# Copy source code
+COPY frontend/ ./
+
+# Set build-time environment variables
+ENV NEXT_TELEMETRY_DISABLED=1 \
+    NODE_ENV=production
+
+# Build the application
+RUN npm run build
+
+# ---------------------------------------------------------------------------
+# Stage 3: Production — Lean runtime with standalone output
+# ---------------------------------------------------------------------------
+FROM node:20-alpine AS production
+
+WORKDIR /app
+
+# Create non-root user
+RUN addgroup --system --gid 1001 nodejs && \
+    adduser --system --uid 1001 nextjs
+
+# Set runtime environment
+ENV NODE_ENV=production \
+    NEXT_TELEMETRY_DISABLED=1 \
+    PORT=3000 \
+    HOSTNAME="0.0.0.0"
+
+# Copy only the necessary output files
+COPY --from=builder /app/public ./public
+
+# Leverage Next.js standalone output for minimal image size
+COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
+COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
+
+# Switch to non-root user
+USER nextjs
+
+# Expose port
+EXPOSE 3000
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
+    CMD node -e "fetch('http://localhost:3000').then(r => { if (!r.ok) process.exit(1) }).catch(() => process.exit(1))" || exit 1
+
+# Start the server
+CMD ["node", "server.js"]

@@ -1,0 +1,207 @@
+# =============================================================================
+# OmniEngine — Backend Deployment (with Sandbox Sidecar)
+# =============================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "omniengine.fullname" . }}-backend
+  labels:
+    {{- include "omniengine.labels" . | nindent 4 }}
+    {{- include "omniengine.backend.selectorLabels" . | nindent 4 }}
+spec:
+  {{- if not .Values.backend.autoscaling.enabled }}
+  replicas: {{ .Values.backend.replicas }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "omniengine.backend.selectorLabels" . | nindent 6 }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        {{- include "omniengine.labels" . | nindent 8 }}
+        {{- include "omniengine.backend.selectorLabels" . | nindent 8 }}
+      {{- with .Values.backend.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      serviceAccountName: default
+      terminationGracePeriodSeconds: 60
+
+      # -----------------------------------------------------------------------
+      # Init Container: Run Alembic migrations before backend starts
+      # -----------------------------------------------------------------------
+      initContainers:
+        - name: migrate
+          image: "{{ .Values.backend.image.repository }}:{{ .Values.backend.image.tag }}"
+          imagePullPolicy: {{ .Values.backend.image.pullPolicy | default .Values.global.imagePullPolicy }}
+          command: ["alembic", "upgrade", "head"]
+          env:
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "omniengine.fullname" . }}-secrets
+                  key: postgres-password
+            - name: DATABASE_URL
+              value: {{ include "omniengine.databaseUrl" . | quote }}
+          resources:
+            limits:
+              cpu: 500m
+              memory: 512Mi
+
+      # -----------------------------------------------------------------------
+      # Main Containers
+      # -----------------------------------------------------------------------
+      containers:
+        # — Backend API Server —
+        - name: backend
+          image: "{{ .Values.backend.image.repository }}:{{ .Values.backend.image.tag }}"
+          imagePullPolicy: {{ .Values.backend.image.pullPolicy | default .Values.global.imagePullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.backend.service.targetPort }}
+              protocol: TCP
+
+          # Environment from ConfigMap
+          envFrom:
+            - configMapRef:
+                name: {{ include "omniengine.fullname" . }}-config
+
+          # Environment from Secrets
+          env:
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "omniengine.fullname" . }}-secrets
+                  key: postgres-password
+            - name: DATABASE_URL
+              value: {{ include "omniengine.databaseUrl" . | quote }}
+            - name: REDIS_URL
+              value: {{ include "omniengine.redisUrl" . | quote }}
+            - name: QDRANT_HOST
+              value: {{ .Values.qdrant.host | quote }}
+            - name: QDRANT_PORT
+              value: {{ .Values.qdrant.port | quote }}
+            - name: QDRANT_GRPC_PORT
+              value: {{ .Values.qdrant.grpcPort | quote }}
+            - name: OPENAI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "omniengine.fullname" . }}-secrets
+                  key: openai-api-key
+            - name: ANTHROPIC_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "omniengine.fullname" . }}-secrets
+                  key: anthropic-api-key
+            - name: GOOGLE_GENAI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "omniengine.fullname" . }}-secrets
+                  key: google-genai-api-key
+            - name: TAVILY_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "omniengine.fullname" . }}-secrets
+                  key: tavily-api-key
+            - name: API_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "omniengine.fullname" . }}-secrets
+                  key: api-secret-key
+            - name: API_KEYS
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "omniengine.fullname" . }}-secrets
+                  key: api-keys
+            # Sandbox sidecar runs on localhost within the same pod
+            - name: SANDBOX_HOST
+              value: "localhost"
+            - name: SANDBOX_PORT
+              value: "8001"
+
+          # Health probes
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.backend.probes.liveness.path }}
+              port: http
+            initialDelaySeconds: {{ .Values.backend.probes.liveness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.backend.probes.liveness.periodSeconds }}
+            timeoutSeconds: {{ .Values.backend.probes.liveness.timeoutSeconds }}
+            failureThreshold: {{ .Values.backend.probes.liveness.failureThreshold }}
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.backend.probes.readiness.path }}
+              port: http
+            initialDelaySeconds: {{ .Values.backend.probes.readiness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.backend.probes.readiness.periodSeconds }}
+            timeoutSeconds: {{ .Values.backend.probes.readiness.timeoutSeconds }}
+            failureThreshold: {{ .Values.backend.probes.readiness.failureThreshold }}
+
+          resources:
+            {{- toYaml .Values.backend.resources | nindent 12 }}
+
+          # Shared volume for sandbox communication
+          volumeMounts:
+            - name: sandbox-workspace
+              mountPath: /tmp/omni-sandbox
+
+        # — Sandbox Sidecar (Code Execution) —
+        {{- if .Values.sandbox.enabled }}
+        - name: sandbox
+          image: "{{ .Values.sandbox.image.repository }}:{{ .Values.sandbox.image.tag }}"
+          imagePullPolicy: {{ .Values.sandbox.image.pullPolicy | default .Values.global.imagePullPolicy }}
+
+          # The sandbox runs a minimal HTTP server for code execution
+          command: ["python", "-m", "http.server", "8001", "--directory", "/sandbox/workspace"]
+          # NOTE: In production, replace the above with a proper execution service.
+          # The backend sends code via the shared volume and triggers execution.
+
+          ports:
+            - name: sandbox
+              containerPort: 8001
+              protocol: TCP
+
+          securityContext:
+            {{- toYaml .Values.sandbox.securityContext | nindent 12 }}
+
+          resources:
+            {{- toYaml .Values.sandbox.resources | nindent 12 }}
+
+          volumeMounts:
+            - name: sandbox-workspace
+              mountPath: /sandbox/workspace
+            # tmpfs for ephemeral execution artifacts
+            - name: sandbox-tmp
+              mountPath: /tmp
+        {{- end }}
+
+      # -----------------------------------------------------------------------
+      # Volumes
+      # -----------------------------------------------------------------------
+      volumes:
+        - name: sandbox-workspace
+          emptyDir:
+            sizeLimit: 100Mi
+        {{- if .Values.sandbox.enabled }}
+        - name: sandbox-tmp
+          emptyDir:
+            medium: Memory
+            sizeLimit: 64Mi
+        {{- end }}
+
+      # -----------------------------------------------------------------------
+      # Scheduling
+      # -----------------------------------------------------------------------
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              {{- include "omniengine.backend.selectorLabels" . | nindent 14 }}

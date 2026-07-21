@@ -1,0 +1,154 @@
+# =============================================================================
+# OmniEngine — Network Policies
+# =============================================================================
+# Restricts network access for the sandbox sidecar to prevent data exfiltration
+# from untrusted code execution.
+# =============================================================================
+
+{{- if .Values.networkPolicy.enabled }}
+# ---------------------------------------------------------------------------
+# Backend Pod Network Policy
+# ---------------------------------------------------------------------------
+# The backend pod contains the sandbox sidecar. This policy:
+#   - Allows ingress from the ingress controller
+#   - Allows egress to PostgreSQL, Redis, Qdrant, and external LLM APIs
+#   - Allows DNS resolution
+#
+# Note: Since the sandbox runs as a sidecar (same pod), pod-level network
+# policies affect both containers. The sandbox is further restricted by:
+#   1. readOnlyRootFilesystem (cannot install tools)
+#   2. Dropped capabilities (cannot modify network config)
+#   3. No shell access (nologin shell)
+#   4. Resource limits preventing resource exhaustion
+# ---------------------------------------------------------------------------
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "omniengine.fullname" . }}-backend-netpol
+  labels:
+    {{- include "omniengine.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "omniengine.backend.selectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Ingress
+    - Egress
+
+  ingress:
+    # Allow traffic from ingress controller
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+      ports:
+        - protocol: TCP
+          port: {{ .Values.backend.service.targetPort }}
+
+    # Allow traffic from frontend pods
+    - from:
+        - podSelector:
+            matchLabels:
+              {{- include "omniengine.frontend.selectorLabels" . | nindent 14 }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.backend.service.targetPort }}
+
+  egress:
+    # Allow DNS resolution
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+
+    # Allow connections to PostgreSQL
+    - to:
+        - podSelector:
+            matchLabels:
+              app: postgresql
+      ports:
+        - protocol: TCP
+          port: {{ .Values.postgresql.port }}
+
+    # Allow connections to Redis
+    - to:
+        - podSelector:
+            matchLabels:
+              app: redis
+      ports:
+        - protocol: TCP
+          port: {{ .Values.redis.port }}
+
+    # Allow connections to Qdrant
+    - to:
+        - podSelector:
+            matchLabels:
+              app: qdrant
+      ports:
+        - protocol: TCP
+          port: {{ .Values.qdrant.port }}
+        - protocol: TCP
+          port: {{ .Values.qdrant.grpcPort }}
+
+    # Allow HTTPS egress to external LLM APIs
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+      ports:
+        - protocol: TCP
+          port: 443
+
+---
+# ---------------------------------------------------------------------------
+# Frontend Pod Network Policy
+# ---------------------------------------------------------------------------
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "omniengine.fullname" . }}-frontend-netpol
+  labels:
+    {{- include "omniengine.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "omniengine.frontend.selectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Ingress
+    - Egress
+
+  ingress:
+    # Allow traffic from ingress controller
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+      ports:
+        - protocol: TCP
+          port: {{ .Values.frontend.service.targetPort }}
+
+  egress:
+    # Allow DNS resolution
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+
+    # Allow connections to backend service only
+    - to:
+        - podSelector:
+            matchLabels:
+              {{- include "omniengine.backend.selectorLabels" . | nindent 14 }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.backend.service.targetPort }}
+{{- end }}

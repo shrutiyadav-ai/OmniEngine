@@ -1,0 +1,13 @@
+# =============================================================================
+# OmniEngine — ConfigMap (Non-Sensitive Configuration)
+# =============================================================================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "omniengine.fullname" . }}-config
+  labels:
+    {{- include "omniengine.labels" . | nindent 4 }}
+data:
+  {{- range $key, $value := .Values.backend.env }}
+  {{ $key }}: {{ $value | quote }}
+  {{- end }}

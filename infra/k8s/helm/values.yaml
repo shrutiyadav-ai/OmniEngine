@@ -1,0 +1,261 @@
+# =============================================================================
+# OmniEngine — Helm Values (Default Configuration)
+# =============================================================================
+# Override with: helm install omniengine ./infra/k8s/helm -f custom-values.yaml
+# Or inline:     helm install omniengine ./infra/k8s/helm --set backend.replicas=4
+# =============================================================================
+
+global:
+  imagePullPolicy: IfNotPresent
+  environment: production
+  logLevel: INFO
+
+# =============================================================================
+# Backend (FastAPI + LangGraph)
+# =============================================================================
+backend:
+  image:
+    repository: ghcr.io/your-org/omniengine/backend
+    tag: latest
+    pullPolicy: IfNotPresent
+
+  replicas: 2
+
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      cpu: 2000m
+      memory: 4Gi
+
+  service:
+    type: ClusterIP
+    port: 8000
+    targetPort: 8000
+
+  # Readiness/liveness probes
+  probes:
+    liveness:
+      path: /health
+      initialDelaySeconds: 45
+      periodSeconds: 30
+      timeoutSeconds: 10
+      failureThreshold: 3
+    readiness:
+      path: /health/ready
+      initialDelaySeconds: 30
+      periodSeconds: 10
+      timeoutSeconds: 5
+      failureThreshold: 3
+
+  # Horizontal Pod Autoscaler
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 10
+    targetCPU: 70
+    targetMemory: 80
+
+  # Environment variables (non-sensitive)
+  env:
+    ENVIRONMENT: production
+    LOG_LEVEL: INFO
+    DB_POOL_SIZE: "20"
+    DB_MAX_OVERFLOW: "10"
+    DB_POOL_RECYCLE: "3600"
+    REDIS_SESSION_TTL: "86400"
+    RATE_LIMIT_RPM: "60"
+    QDRANT_COLLECTION_NAME: omni_memories
+    QDRANT_EMBEDDING_DIM: "1536"
+    CONTEXT_SUMMARIZATION_THRESHOLD: "0.70"
+    MEMORY_ROLLING_BUFFER_SIZE: "20"
+    MEMORY_TOP_K: "5"
+    EMBEDDING_MODEL: text-embedding-3-small
+    SAFETY_CONFIDENCE_THRESHOLD: "0.60"
+    MAX_TOOL_FAILURES: "3"
+    PII_REDACTION_ENABLED: "true"
+    AGENT_RECURSION_LIMIT: "25"
+    SESSION_COST_CAP_USD: "5.00"
+    REQUEST_COST_CAP_USD: "1.00"
+    COST_ALERT_THRESHOLD: "0.80"
+    CLEANUP_INTERVAL_SECONDS: "3600"
+    CLEANUP_MAX_SESSION_AGE: "86400"
+    CLEANUP_MAX_SANDBOX_AGE: "86400"
+    TELEMETRY_ENABLED: "true"
+    TELEMETRY_BATCH_SIZE: "50"
+
+  # Pod annotations (e.g., for Prometheus scraping)
+  podAnnotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "8000"
+    prometheus.io/path: "/metrics"
+
+# =============================================================================
+# Sandbox Sidecar (Code Execution)
+# =============================================================================
+sandbox:
+  enabled: true
+  image:
+    repository: ghcr.io/your-org/omniengine/sandbox
+    tag: latest
+    pullPolicy: IfNotPresent
+
+  # Strict resource limits — this runs untrusted code
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m       # Hard cap: half a CPU core
+      memory: 256Mi   # Hard cap: 256MB RAM
+
+  # Hardened security context — defense in depth
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 65534
+    runAsGroup: 65534
+    readOnlyRootFilesystem: true
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop:
+        - ALL
+    seccompProfile:
+      type: RuntimeDefault
+
+  # Timeout for code execution (seconds)
+  timeout: 30
+
+# =============================================================================
+# Frontend (Next.js 14)
+# =============================================================================
+frontend:
+  image:
+    repository: ghcr.io/your-org/omniengine/frontend
+    tag: latest
+    pullPolicy: IfNotPresent
+
+  replicas: 2
+
+  resources:
+    requests:
+      cpu: 200m
+      memory: 256Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+
+  service:
+    type: ClusterIP
+    port: 3000
+    targetPort: 3000
+
+  probes:
+    liveness:
+      path: /
+      initialDelaySeconds: 30
+      periodSeconds: 30
+      timeoutSeconds: 10
+      failureThreshold: 3
+    readiness:
+      path: /
+      initialDelaySeconds: 15
+      periodSeconds: 10
+      timeoutSeconds: 5
+      failureThreshold: 3
+
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 6
+    targetCPU: 75
+
+  env:
+    NEXT_PUBLIC_API_URL: ""  # Set via ingress host
+    NODE_ENV: production
+
+# =============================================================================
+# Ingress
+# =============================================================================
+ingress:
+  enabled: true
+  className: nginx
+
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-buffering: "off"  # Required for SSE
+    nginx.ingress.kubernetes.io/proxy-http-version: "1.1"
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      proxy_set_header Connection '';
+      chunked_transfer_encoding off;
+
+  hosts:
+    - host: omniengine.example.com
+      paths:
+        - path: /api
+          pathType: Prefix
+          service: backend
+          port: 8000
+        - path: /health
+          pathType: Prefix
+          service: backend
+          port: 8000
+        - path: /
+          pathType: Prefix
+          service: frontend
+          port: 3000
+
+  tls:
+    - secretName: omniengine-tls
+      hosts:
+        - omniengine.example.com
+
+# =============================================================================
+# Secrets (Override via --set or external secret manager)
+# =============================================================================
+secrets:
+  # LLM Provider API Keys
+  openaiApiKey: ""
+  anthropicApiKey: ""
+  googleGenaiApiKey: ""
+  tavilyApiKey: ""
+
+  # Database & Cache
+  postgresPassword: ""
+  redisPassword: ""
+
+  # Application Security
+  apiSecretKey: ""
+  apiKeys: ""  # Comma-separated list of valid API keys
+
+# =============================================================================
+# External Services (connection details)
+# =============================================================================
+postgresql:
+  host: postgresql
+  port: 5432
+  database: omniengine
+  username: omni
+
+redis:
+  host: redis
+  port: 6379
+  db: 0
+
+qdrant:
+  host: qdrant
+  port: 6333
+  grpcPort: 6334
+
+# =============================================================================
+# Network Policies
+# =============================================================================
+networkPolicy:
+  enabled: true
+  # Restrict sandbox egress to prevent data exfiltration
+  sandbox:
+    denyAllEgress: true
+    allowDNS: false

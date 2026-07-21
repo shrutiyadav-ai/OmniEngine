@@ -1,0 +1,44 @@
+# =============================================================================
+# OmniEngine — Kubernetes Services
+# =============================================================================
+
+# ---------------------------------------------------------------------------
+# Backend Service
+# ---------------------------------------------------------------------------
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "omniengine.fullname" . }}-backend
+  labels:
+    {{- include "omniengine.labels" . | nindent 4 }}
+    {{- include "omniengine.backend.selectorLabels" . | nindent 4 }}
+spec:
+  type: {{ .Values.backend.service.type }}
+  ports:
+    - port: {{ .Values.backend.service.port }}
+      targetPort: {{ .Values.backend.service.targetPort }}
+      protocol: TCP
+      name: http
+  selector:
+    {{- include "omniengine.backend.selectorLabels" . | nindent 4 }}
+
+---
+# ---------------------------------------------------------------------------
+# Frontend Service
+# ---------------------------------------------------------------------------
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "omniengine.fullname" . }}-frontend
+  labels:
+    {{- include "omniengine.labels" . | nindent 4 }}
+    {{- include "omniengine.frontend.selectorLabels" . | nindent 4 }}
+spec:
+  type: {{ .Values.frontend.service.type }}
+  ports:
+    - port: {{ .Values.frontend.service.port }}
+      targetPort: {{ .Values.frontend.service.targetPort }}
+      protocol: TCP
+      name: http
+  selector:
+    {{- include "omniengine.frontend.selectorLabels" . | nindent 4 }}

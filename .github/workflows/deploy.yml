@@ -1,0 +1,272 @@
+# =============================================================================
+# OmniEngine — CI/CD Pipeline (GitHub Actions)
+# =============================================================================
+# Triggers:
+#   - Push to main/develop: Full pipeline (lint → test → build → push)
+#   - Pull requests to main: Lint + test only
+#
+# Required GitHub Secrets:
+#   - REGISTRY_URL         (e.g., ghcr.io, gcr.io, or ECR URL)
+#   - REGISTRY_USERNAME    (registry username or _json_key for GCR)
+#   - REGISTRY_PASSWORD    (registry password or service account JSON)
+#   - OPENAI_API_KEY       (for integration tests, optional)
+# =============================================================================
+
+name: OmniEngine CI/CD
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHON_VERSION: "3.12"
+  NODE_VERSION: "20"
+  REGISTRY: ghcr.io
+  IMAGE_PREFIX: ${{ github.repository_owner }}/omniengine
+
+jobs:
+  # ===========================================================================
+  # Job 1: Lint — Static analysis and code quality
+  # ===========================================================================
+  lint:
+    name: Lint & Type Check
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: "pip"
+
+      - name: Install linting tools
+        run: pip install ruff mypy
+
+      - name: Run Ruff linter
+        run: ruff check backend/ --output-format=github
+
+      - name: Run Ruff formatter check
+        run: ruff format backend/ --check
+
+      - name: Run MyPy type check
+        run: mypy backend/ --ignore-missing-imports --no-error-summary
+        continue-on-error: true  # Non-blocking until type coverage improves
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Run frontend type check
+        working-directory: frontend
+        run: npx tsc --noEmit
+
+      - name: Run frontend linter
+        working-directory: frontend
+        run: npx next lint
+        continue-on-error: true
+
+  # ===========================================================================
+  # Job 2: Test — Unit & integration tests with service containers
+  # ===========================================================================
+  test-backend:
+    name: Backend Tests
+    runs-on: ubuntu-latest
+    needs: lint
+    timeout-minutes: 15
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: omniengine_test
+          POSTGRES_USER: omni
+          POSTGRES_PASSWORD: test_password_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      qdrant:
+        image: qdrant/qdrant:v1.12.1
+        ports:
+          - 6333:6333
+          - 6334:6334
+        options: >-
+          --health-cmd "bash -c 'exec 3<>/dev/tcp/localhost/6333'"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: "pip"
+
+      - name: Install dependencies
+        run: pip install -e ".[dev]"
+
+      - name: Run Alembic migrations
+        env:
+          DATABASE_URL: postgresql+asyncpg://omni:test_password_ci@localhost:5432/omniengine_test
+        run: alembic upgrade head
+        continue-on-error: true  # OK if no migrations exist yet
+
+      - name: Run tests with coverage
+        env:
+          ENVIRONMENT: testing
+          DATABASE_URL: postgresql+asyncpg://omni:test_password_ci@localhost:5432/omniengine_test
+          REDIS_URL: redis://localhost:6379/0
+          QDRANT_HOST: localhost
+          QDRANT_PORT: "6333"
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY || 'sk-test-key' }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY || 'sk-ant-test-key' }}
+          GOOGLE_GENAI_API_KEY: ${{ secrets.GOOGLE_GENAI_API_KEY || 'test-key' }}
+          TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY || 'tvly-test-key' }}
+          API_SECRET_KEY: ci-test-secret-key-not-for-production
+          API_KEYS: test-api-key
+        run: |
+          pytest backend/tests/ \
+            -v \
+            --tb=short \
+            --cov=backend \
+            --cov-report=xml:coverage.xml \
+            --cov-report=term-missing \
+            -m "not slow and not integration" \
+            --timeout=30
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage.xml
+          retention-days: 7
+
+  # ===========================================================================
+  # Job 3: Build & Push — Docker images to container registry
+  # ===========================================================================
+  build-and-push:
+    name: Build & Push Docker Images
+    runs-on: ubuntu-latest
+    needs: test-backend
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    timeout-minutes: 30
+
+    permissions:
+      contents: read
+      packages: write
+
+    strategy:
+      matrix:
+        include:
+          - image: backend
+            dockerfile: infra/docker/Dockerfile.backend
+          - image: frontend
+            dockerfile: infra/docker/Dockerfile.frontend
+          - image: sandbox
+            dockerfile: infra/docker/Dockerfile.sandbox
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/${{ matrix.image }}
+          tags: |
+            type=sha,prefix=
+            type=ref,event=branch
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=semver,pattern={{version}},enable=${{ startsWith(github.ref, 'refs/tags/v') }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          platforms: linux/amd64,linux/arm64
+
+  # ===========================================================================
+  # Job 4: Helm Lint — Validate Kubernetes manifests
+  # ===========================================================================
+  helm-lint:
+    name: Helm Lint
+    runs-on: ubuntu-latest
+    needs: lint
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.16.0
+
+      - name: Lint Helm chart
+        run: helm lint infra/k8s/helm/ --strict
+
+      - name: Template Helm chart (dry run)
+        run: |
+          helm template omniengine infra/k8s/helm/ \
+            --set secrets.openaiApiKey=test \
+            --set secrets.anthropicApiKey=test \
+            --set secrets.googleGenaiApiKey=test \
+            --set secrets.tavilyApiKey=test \
+            --set secrets.postgresPassword=test \
+            --set secrets.apiSecretKey=test \
+            --set secrets.apiKeys=test \
+            > /dev/null
