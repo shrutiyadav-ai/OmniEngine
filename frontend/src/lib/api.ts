@@ -1,6 +1,6 @@
 import { Session, Message, StreamEvent } from './types';
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || '';
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 const API_KEY = process.env.NEXT_PUBLIC_API_KEY || 'dev-key-change-me-in-production';
 
 export async function fetchSessions(): Promise<Session[]> {
@@ -88,13 +88,14 @@ export async function* streamChat(
     if (done) break;
 
     buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split('\n\n');
+    const lines = buffer.split(/\r?\n/);
     buffer = lines.pop() || '';
 
-    for (const line of lines) {
+    for (const rawLine of lines) {
+      const line = rawLine.trim();
       if (line.startsWith('data: ')) {
         try {
-          const jsonStr = line.replace('data: ', '').trim();
+          const jsonStr = line.slice(6).trim();
           if (jsonStr) {
             const parsed: StreamEvent = JSON.parse(jsonStr);
             yield parsed;

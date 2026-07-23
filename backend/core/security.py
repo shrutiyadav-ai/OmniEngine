@@ -127,7 +127,7 @@ async def enforce_rate_limit(
         redis = get_redis()
         limiter = RateLimiter(redis)
         is_allowed, remaining, reset_seconds = await limiter.check_rate_limit(api_key)
-    except RuntimeError:
+    except Exception:
         # Redis not available — fail open in development, fail closed in production
         settings = get_settings()
         if settings.is_production:

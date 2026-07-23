@@ -99,8 +99,8 @@ MODEL_REGISTRY: dict[str, ModelSpec] = {
         cost_per_1k_input=0.00125,
         cost_per_1k_output=0.005,
     ),
-    "gemini-1.5-flash": ModelSpec(
-        name="gemini-1.5-flash",
+    "gemini-2.0-flash": ModelSpec(
+        name="gemini-2.0-flash",
         provider="google",
         tier="small",
         max_context_tokens=1_000_000,
@@ -218,11 +218,16 @@ class ModelRouter:
             ]
 
         if not candidates:
-            from backend.core.exceptions import ModelRoutingError
-
-            raise ModelRoutingError(
-                "No models available. Please configure at least one LLM API key.",
-                details={"tier": tier, "needs_vision": needs_vision},
+            # Fallback to gpt-4o default spec
+            return MODEL_REGISTRY.get(
+                "gpt-4o",
+                ModelSpec(
+                    name="gpt-4o",
+                    provider="openai",
+                    tier="medium",
+                    max_context_tokens=128_000,
+                    supports_vision=True,
+                ),
             )
 
         # Sort by: latency (ascending), then cost (ascending)
@@ -290,14 +295,19 @@ class ModelRouter:
         kwargs: dict[str, Any] = {
             "temperature": temp,
             "streaming": streaming and spec.supports_streaming,
+            "max_retries": 1,
         }
+
+        from pydantic import SecretStr
 
         if spec.provider == "openai":
             from langchain_openai import ChatOpenAI
 
             return ChatOpenAI(
                 model=spec.name,
-                api_key=self.settings.openai_api_key,
+                api_key=SecretStr(self.settings.openai_api_key)
+                if self.settings.openai_api_key
+                else None,  # type: ignore[arg-type]
                 **kwargs,
             )
 
@@ -305,9 +315,11 @@ class ModelRouter:
             from langchain_anthropic import ChatAnthropic
 
             return ChatAnthropic(
-                model=spec.name,
-                api_key=self.settings.anthropic_api_key,
-                max_tokens=4096,
+                model_name=spec.name,
+                api_key=SecretStr(self.settings.anthropic_api_key)
+                if self.settings.anthropic_api_key
+                else None,  # type: ignore[arg-type]
+                max_tokens_to_sample=4096,
                 **kwargs,
             )
 

@@ -125,9 +125,27 @@ async def invoke_agent(
     """
     logger.info("Invoking agent pipeline for session %s", session_id)
 
+    # Process document attachments if provided
+    effective_user_message = user_message
+    if attachments:
+        try:
+            from backend.core.document_parser import DocumentParser
+
+            parsed_blocks = []
+            for att in attachments:
+                parsed_blocks.append(DocumentParser.parse_attachment(att))
+
+            if parsed_blocks:
+                effective_user_message = (
+                    f"{user_message}\n\n[Extracted Document Attachments Context]:\n"
+                    + "\n\n".join(parsed_blocks)
+                )
+        except Exception as e:
+            logger.warning("Error parsing attachments in orchestrator: %s", str(e))
+
     initial_state = create_initial_state(
         session_id=session_id,
-        user_message=user_message,
+        user_message=effective_user_message,
         attachments=attachments,
         model_preference=model_preference,
         temperature=temperature,
@@ -173,15 +191,22 @@ async def invoke_agent(
 
                 elif node_name == "response_formatter":
                     model_used = node_output.get("model_used", "gpt-4o")
-                    # Synthesize token response stream
-                    yield {
-                        "type": "token",
-                        "content": f"Answer to: {user_message}\n\nProcessed via multi-agent pipeline.",
-                    }
+                    final_content = node_output.get("final_response") or ""
+                    if not final_content:
+                        final_content = f"Response processed for query: {user_message}"
+
+                    # Yield stream token chunks
+                    chunk_size = 5
+                    for i in range(0, len(final_content), chunk_size):
+                        yield {
+                            "type": "token",
+                            "content": final_content[i : i + chunk_size],
+                        }
+
                     yield {
                         "type": "metadata",
                         "model": model_used,
-                        "total_tokens": 150,
+                        "total_tokens": len(final_content.split()),
                         "cost_usd": 0.0015,
                         "confidence_score": 0.95,
                     }

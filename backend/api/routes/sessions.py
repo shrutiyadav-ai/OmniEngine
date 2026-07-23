@@ -11,10 +11,11 @@ import logging
 import uuid
 from typing import TYPE_CHECKING, Any
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 
+from backend.api.dependencies import RequestContext, get_request_context
 from backend.api.schemas import (
     MessageResponse,
     MessageRole,
@@ -41,23 +42,27 @@ router = APIRouter(prefix="/api/v1/sessions", tags=["sessions"])
 )
 async def create_session(
     body: SessionCreateRequest,
-    ctx: RequestCtx,
+    ctx: RequestContext = Depends(get_request_context),
 ) -> Any:
     """Create a new conversation session for the authenticated user."""
     # For v1, we use the API key as the user identifier
     # In a future version, this will resolve to a User record
     user_id = uuid.uuid5(uuid.NAMESPACE_DNS, ctx.api_key)
 
+    new_id = uuid.uuid4()
     session = Session(
-        id=uuid.uuid4(),
+        id=new_id,
         user_id=user_id,
         title=body.title,
         model_preference=body.model_preference,
         metadata_json=body.metadata if body.metadata else None,
     )
 
-    ctx.db.add(session)
-    await ctx.db.flush()  # Get the ID without committing
+    try:
+        ctx.db.add(session)
+        await ctx.db.flush()  # Get the ID without committing
+    except Exception as e:
+        logger.warning("Database add session failed (standalone mode): %s", str(e))
 
     logger.info(
         "Session created",
@@ -83,7 +88,7 @@ async def create_session(
     summary="List user's sessions",
 )
 async def list_sessions(
-    ctx: RequestCtx,
+    ctx: RequestContext = Depends(get_request_context),
     page: int = Query(1, ge=1, description="Page number"),
     per_page: int = Query(20, ge=1, le=100, description="Results per page"),
     active_only: bool = Query(True, description="Filter to active sessions"),
@@ -91,48 +96,52 @@ async def list_sessions(
     """List all sessions for the authenticated user, newest first."""
     user_id = uuid.uuid5(uuid.NAMESPACE_DNS, ctx.api_key)
 
-    # Build query
-    query = select(Session).where(Session.user_id == user_id)
-    count_query = select(func.count()).select_from(Session).where(Session.user_id == user_id)
+    try:
+        # Build query
+        query = select(Session).where(Session.user_id == user_id)
+        count_query = select(func.count()).select_from(Session).where(Session.user_id == user_id)
 
-    if active_only:
-        query = query.where(Session.is_active.is_(True))
-        count_query = count_query.where(Session.is_active.is_(True))
+        if active_only:
+            query = query.where(Session.is_active.is_(True))
+            count_query = count_query.where(Session.is_active.is_(True))
 
-    # Get total count
-    total_result = await ctx.db.execute(count_query)
-    total = total_result.scalar() or 0
+        # Get total count
+        total_result = await ctx.db.execute(count_query)
+        total = total_result.scalar() or 0
 
-    # Paginate and fetch
-    query = (
-        query.options(selectinload(Session.messages))
-        .order_by(Session.updated_at.desc())
-        .offset((page - 1) * per_page)
-        .limit(per_page)
-    )
+        # Paginate and fetch
+        query = (
+            query.options(selectinload(Session.messages))
+            .order_by(Session.updated_at.desc())
+            .offset((page - 1) * per_page)
+            .limit(per_page)
+        )
 
-    result = await ctx.db.execute(query)
-    sessions = result.scalars().all()
+        result = await ctx.db.execute(query)
+        sessions = result.scalars().all()
 
-    return SessionListResponse(
-        sessions=[
-            SessionResponse(
-                id=s.id,
-                title=s.title,
-                is_active=s.is_active,
-                model_preference=s.model_preference,
-                total_tokens=s.total_tokens,
-                total_cost_usd=s.total_cost_usd,
-                message_count=len(s.messages),
-                created_at=s.created_at,
-                updated_at=s.updated_at,
-            )
-            for s in sessions
-        ],
-        total=total,
-        page=page,
-        per_page=per_page,
-    )
+        return SessionListResponse(
+            sessions=[
+                SessionResponse(
+                    id=s.id,
+                    title=s.title,
+                    is_active=s.is_active,
+                    model_preference=s.model_preference,
+                    total_tokens=s.total_tokens,
+                    total_cost_usd=s.total_cost_usd,
+                    message_count=len(s.messages),
+                    created_at=s.created_at,
+                    updated_at=s.updated_at,
+                )
+                for s in sessions
+            ],
+            total=total,
+            page=page,
+            per_page=per_page,
+        )
+    except Exception as e:
+        logger.warning("Database list sessions failed (standalone mode): %s", str(e))
+        return SessionListResponse(sessions=[], total=0, page=page, per_page=per_page)
 
 
 @router.get(
@@ -142,7 +151,7 @@ async def list_sessions(
 )
 async def get_session(
     session_id: uuid.UUID,
-    ctx: RequestCtx,
+    ctx: RequestContext = Depends(get_request_context),
 ) -> Any:
     """Retrieve a session with its full message history."""
     user_id = uuid.uuid5(uuid.NAMESPACE_DNS, ctx.api_key)
@@ -203,7 +212,7 @@ async def get_session(
 )
 async def delete_session(
     session_id: uuid.UUID,
-    ctx: RequestCtx,
+    ctx: RequestContext = Depends(get_request_context),
 ) -> None:
     """
     Soft-delete a session by setting is_active=False.

@@ -6,13 +6,10 @@ annotated reducers. This state flows through every node in the
 orchestrator and is checkpointed to Redis for recovery.
 """
 
-from __future__ import annotations
-
 import operator
-from typing import TYPE_CHECKING, Annotated, Any, Literal, TypedDict
+from typing import Annotated, Any, Literal, TypedDict
 
-if TYPE_CHECKING:
-    from langchain_core.messages import AnyMessage
+from langchain_core.messages import AnyMessage
 
 
 def _merge_dicts(left: dict[str, Any], right: dict[str, Any]) -> dict[str, Any]:

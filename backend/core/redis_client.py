@@ -10,6 +10,7 @@ Provides Redis connection management for:
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 from typing import Any
@@ -91,12 +92,16 @@ class SessionCache:
 
     async def get(self, session_id: str) -> dict[str, Any] | None:
         """Retrieve cached session state."""
-        data = await self._redis.get(self._key(session_id))
-        if data is None:
-            return None
-        from typing import cast
+        try:
+            data = await self._redis.get(self._key(session_id))
+            if data is None:
+                return None
+            from typing import cast
 
-        return cast("dict[str, Any]", json.loads(data))
+            return cast("dict[str, Any]", json.loads(data))
+        except Exception as e:
+            logger.warning("Redis SessionCache.get failed (standalone mode): %s", str(e))
+            return None
 
     async def set(
         self,
@@ -105,33 +110,44 @@ class SessionCache:
         ttl: int | None = None,
     ) -> None:
         """Store session state with TTL (default from settings)."""
-        ttl = ttl or self._settings.redis_session_ttl
-        await self._redis.set(
-            self._key(session_id),
-            json.dumps(state, default=str),
-            ex=ttl,
-        )
+        try:
+            ttl = ttl or self._settings.redis_session_ttl
+            await self._redis.set(
+                self._key(session_id),
+                json.dumps(state, default=str),
+                ex=ttl,
+            )
+        except Exception as e:
+            logger.warning("Redis SessionCache.set failed (standalone mode): %s", str(e))
 
     async def delete(self, session_id: str) -> None:
         """Remove session from cache."""
-        await self._redis.delete(self._key(session_id))
+        with contextlib.suppress(Exception):
+            await self._redis.delete(self._key(session_id))
 
     async def exists(self, session_id: str) -> bool:
         """Check if session exists in cache."""
-        return bool(await self._redis.exists(self._key(session_id)))
+        try:
+            return bool(await self._redis.exists(self._key(session_id)))
+        except Exception:
+            return False
 
     async def touch(self, session_id: str) -> None:
         """Reset TTL on an active session."""
-        await self._redis.expire(
-            self._key(session_id),
-            self._settings.redis_session_ttl,
-        )
+        with contextlib.suppress(Exception):
+            await self._redis.expire(
+                self._key(session_id),
+                self._settings.redis_session_ttl,
+            )
 
     async def get_all_session_keys(self) -> list[str]:
         """List all active session keys (for cleanup)."""
         keys: list[str] = []
-        async for key in self._redis.scan_iter(match=f"{self.PREFIX}*", count=100):
-            keys.append(key)
+        try:
+            async for key in self._redis.scan_iter(match=f"{self.PREFIX}*", count=100):
+                keys.append(key)
+        except Exception as e:
+            logger.debug("Redis scan_iter failed: %s", str(e))
         return keys
 
 
@@ -173,29 +189,33 @@ class RateLimiter:
         now = time.time()
         window_start = now - window_seconds
 
-        pipe = self._redis.pipeline()
-        # Remove expired entries
-        pipe.zremrangebyscore(key, "-inf", window_start)
-        # Count current requests
-        pipe.zcard(key)
-        # Add current request
-        pipe.zadd(key, {str(now): now})
-        # Set expiry on the key
-        pipe.expire(key, window_seconds)
+        try:
+            pipe = self._redis.pipeline()
+            # Remove expired entries
+            pipe.zremrangebyscore(key, "-inf", window_start)
+            # Count current requests
+            pipe.zcard(key)
+            # Add current request
+            pipe.zadd(key, {str(now): now})
+            # Set expiry on the key
+            pipe.expire(key, window_seconds)
 
-        results = await pipe.execute()
-        current_count = results[1]  # zcard result
+            results = await pipe.execute()
+            current_count = results[1]  # zcard result
 
-        is_allowed = current_count < max_requests
-        remaining = max(0, max_requests - current_count - 1)
-        reset_seconds = window_seconds
+            is_allowed = current_count < max_requests
+            remaining = max(0, max_requests - current_count - 1)
+            reset_seconds = window_seconds
 
-        if not is_allowed:
-            # Remove the request we just added since it's denied
-            await self._redis.zrem(key, str(now))
-            remaining = 0
+            if not is_allowed:
+                # Remove the request we just added since it's denied
+                await self._redis.zrem(key, str(now))
+                remaining = 0
 
-        return is_allowed, remaining, reset_seconds
+            return is_allowed, remaining, reset_seconds
+        except Exception as e:
+            logger.warning("Redis RateLimiter check failed (standalone mode): %s", str(e))
+            return True, 100, window_seconds
 
 
 # =============================================================================
@@ -227,17 +247,25 @@ class CostTracker:
         Returns:
             The new cumulative cost for the session.
         """
-        new_total = await self._redis.incrbyfloat(self._key(session_id), cost_usd)
-        # Set TTL if this is the first cost entry
-        ttl = await self._redis.ttl(self._key(session_id))
-        if ttl == -1:  # No TTL set
-            await self._redis.expire(self._key(session_id), self._settings.redis_session_ttl)
-        return float(new_total)
+        try:
+            new_total = await self._redis.incrbyfloat(self._key(session_id), cost_usd)
+            # Set TTL if this is the first cost entry
+            ttl = await self._redis.ttl(self._key(session_id))
+            if ttl == -1:  # No TTL set
+                await self._redis.expire(self._key(session_id), self._settings.redis_session_ttl)
+            return float(new_total)
+        except Exception as e:
+            logger.warning("Redis CostTracker add_cost failed (standalone mode): %s", str(e))
+            return 0.0
 
     async def get_cost(self, session_id: str) -> float:
         """Get the current cumulative cost for a session."""
-        cost = await self._redis.get(self._key(session_id))
-        return float(cost) if cost else 0.0
+        try:
+            cost = await self._redis.get(self._key(session_id))
+            return float(cost) if cost else 0.0
+        except Exception as e:
+            logger.warning("Redis CostTracker get_cost failed (standalone mode): %s", str(e))
+            return 0.0
 
     async def check_cost_cap(self, session_id: str) -> tuple[bool, float, float]:
         """
@@ -259,4 +287,5 @@ class CostTracker:
 
     async def reset(self, session_id: str) -> None:
         """Reset cost tracking for a session."""
-        await self._redis.delete(self._key(session_id))
+        with contextlib.suppress(Exception):
+            await self._redis.delete(self._key(session_id))

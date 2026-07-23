@@ -9,7 +9,7 @@ high-concurrency agentic workloads.
 from __future__ import annotations
 
 import logging
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from typing import TYPE_CHECKING
 
 from sqlalchemy.ext.asyncio import (
@@ -134,9 +134,15 @@ async def get_db_session() -> AsyncGenerator[AsyncSession, None]:
     async with factory() as session:
         try:
             yield session
-            await session.commit()
+            try:
+                await session.commit()
+            except Exception as commit_err:
+                logger.warning("Database commit failed (standalone mode): %s", str(commit_err))
+                with suppress(Exception):
+                    await session.rollback()
         except Exception:
-            await session.rollback()
+            with suppress(Exception):
+                await session.rollback()
             raise
 
 

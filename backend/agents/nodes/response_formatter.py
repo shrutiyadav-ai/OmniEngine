@@ -70,7 +70,6 @@ async def response_formatter_node(state: AgentState) -> dict[str, Any]:
     ]
 
     try:
-        # Note: In full streaming execution, tokens are yielded via callback/generator
         response = await llm.ainvoke(prompt)
         final_content = (
             response.content if isinstance(response.content, str) else str(response.content)
@@ -79,6 +78,7 @@ async def response_formatter_node(state: AgentState) -> dict[str, Any]:
         return {
             "internal_monologue": f"Formatted final output using model {spec.name} (tier: {tier}).",
             "model_used": spec.name,
+            "final_response": final_content,
             "is_done": True,
             "scratchpad": [
                 {
@@ -90,9 +90,21 @@ async def response_formatter_node(state: AgentState) -> dict[str, Any]:
         }
 
     except Exception as e:
-        logger.error("Response Formatter failed: %s", str(e))
+        logger.error("Response Formatter LLM call failed: %s", str(e))
+        fallback_msg = (
+            f"Here is the processed output for your request:\n\n**Query**: {user_message}\n\n"
+        )
+        if results_text:
+            fallback_msg += f"**Execution Results**:\n{results_text}\n\n"
+        if memory_text:
+            fallback_msg += f"**Context**:\n{memory_text}\n\n"
+
+        fallback_msg += f"*(Note: LLM provider call encountered an issue: {e!s}. OmniEngine fallback response generated.)*"
+
         return {
-            "internal_monologue": f"Formatting error: {e!s}",
+            "internal_monologue": f"Formatting fallback used due to error: {e!s}",
+            "model_used": spec.name,
+            "final_response": fallback_msg,
             "is_done": True,
             "scratchpad": [
                 {

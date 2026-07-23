@@ -150,11 +150,21 @@ export function useChat(sessionId: string | null) {
     }
   };
 
+  const retryLastMessage = async () => {
+    const lastUserMsg = [...messages].reverse().find((m) => m.role === 'user');
+    if (lastUserMsg) {
+      // Remove any trailing error message
+      setMessages((prev) => prev.filter((m) => !m.content.includes('*Error:')));
+      await sendMessage(lastUserMsg.content, undefined, lastUserMsg.attachments);
+    }
+  };
+
   return {
     messages,
     isStreaming,
     thinkingStatus,
     activeTool,
     sendMessage,
+    retryLastMessage,
   };
 }

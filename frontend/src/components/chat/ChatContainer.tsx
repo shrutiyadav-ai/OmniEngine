@@ -19,6 +19,7 @@ export const ChatContainer: React.FC = () => {
     thinkingStatus,
     activeTool,
     sendMessage,
+    retryLastMessage,
   } = useChat(activeSessionId);
 
   const handleSendMessage = async (text: string, modelPreference?: string, attachments?: any[]) => {
@@ -47,6 +48,7 @@ export const ChatContainer: React.FC = () => {
           isStreaming={isStreaming}
           thinkingStatus={thinkingStatus}
           activeTool={activeTool}
+          onRetry={retryLastMessage}
         />
         <ChatInput onSendMessage={handleSendMessage} disabled={isStreaming} />
       </main>

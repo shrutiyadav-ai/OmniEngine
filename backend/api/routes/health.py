@@ -12,10 +12,10 @@ from typing import TYPE_CHECKING
 
 from fastapi import APIRouter
 
+from backend.core.config import get_settings
+
 if TYPE_CHECKING:
     from fastapi.responses import JSONResponse
-
-from backend.core.config import get_settings
 
 logger = logging.getLogger(__name__)
 

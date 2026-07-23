@@ -52,19 +52,18 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     try:
         await init_database()
-        logger.info("✓ PostgreSQL connected")
+        logger.info("[OK] PostgreSQL connected")
     except Exception as e:
-        logger.error("✗ PostgreSQL connection failed: %s", str(e))
-        raise
+        logger.warning("[WARN] PostgreSQL connection failed (non-fatal): %s", str(e))
 
     # Initialize Redis
     from backend.core.redis_client import close_redis, init_redis
 
     try:
         await init_redis()
-        logger.info("✓ Redis connected")
+        logger.info("[OK] Redis connected")
     except Exception as e:
-        logger.warning("✗ Redis connection failed (non-fatal): %s", str(e))
+        logger.warning("[WARN] Redis connection failed (non-fatal): %s", str(e))
 
     # Initialize Qdrant collection
     settings = get_settings()
@@ -88,18 +87,18 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                 ),
             )
             logger.info(
-                "✓ Qdrant collection '%s' created",
+                "[OK] Qdrant collection '%s' created",
                 settings.qdrant_collection_name,
             )
         else:
             logger.info(
-                "✓ Qdrant collection '%s' exists",
+                "[OK] Qdrant collection '%s' exists",
                 settings.qdrant_collection_name,
             )
 
         await qdrant.close()
     except Exception as e:
-        logger.warning("✗ Qdrant initialization failed (non-fatal): %s", str(e))
+        logger.warning("[WARN] Qdrant initialization failed (non-fatal): %s", str(e))
 
     # Start background cleanup task
     import asyncio
@@ -110,9 +109,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             from backend.core.cleanup import periodic_cleanup
 
             cleanup_task = asyncio.create_task(periodic_cleanup())
-            logger.info("✓ Background cleanup task started")
+            logger.info("[OK] Background cleanup task started")
         except ImportError:
-            logger.info("⊘ Cleanup module not yet available (Phase 4)")
+            logger.info("Cleanup module not yet available (Phase 4)")
 
     logger.info(
         "OmniEngine started successfully (env=%s, version=%s)",

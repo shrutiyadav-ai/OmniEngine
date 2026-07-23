@@ -8,6 +8,7 @@ interface MessageListProps {
   isStreaming?: boolean;
   thinkingStatus?: string | null;
   activeTool?: string | null;
+  onRetry?: () => void;
 }
 
 export const MessageList: React.FC<MessageListProps> = ({
@@ -15,6 +16,7 @@ export const MessageList: React.FC<MessageListProps> = ({
   isStreaming,
   thinkingStatus,
   activeTool,
+  onRetry,
 }) => {
   const bottomRef = useRef<HTMLDivElement>(null);
 
@@ -29,12 +31,14 @@ export const MessageList: React.FC<MessageListProps> = ({
           <div className="p-4 rounded-2xl bg-indigo-600/10 border border-indigo-500/20 mb-4">
             <h2 className="text-xl font-bold text-white mb-2">Welcome to OmniEngine</h2>
             <p className="text-sm text-gray-400 max-w-md">
-              Tier-1 multi-model AI assistant powered by LangGraph, dynamic routing, and vector memory.
+              Tier-1 multi-model AI assistant powered by LangGraph, dynamic routing, document intelligence, and vector memory.
             </p>
           </div>
         </div>
       ) : (
-        messages.map((message) => <MessageBubble key={message.id} message={message} />)
+        messages.map((message) => (
+          <MessageBubble key={message.id} message={message} onRetry={onRetry} />
+        ))
       )}
 
       {isStreaming && (
