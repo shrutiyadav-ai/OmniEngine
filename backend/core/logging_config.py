@@ -73,11 +73,13 @@ def configure_logging() -> None:
 
     if settings.is_production:
         # Production: JSON output
-        shared_processors.extend([
-            add_app_info,
-            structlog.processors.format_exc_info,
-            structlog.processors.UnicodeDecoder(),
-        ])
+        shared_processors.extend(
+            [
+                add_app_info,
+                structlog.processors.format_exc_info,
+                structlog.processors.UnicodeDecoder(),
+            ]
+        )
 
         structlog.configure(
             processors=[

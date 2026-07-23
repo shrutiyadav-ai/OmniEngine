@@ -39,9 +39,7 @@ def hash_api_key(api_key: str) -> str:
     Uses SHA-256 with a consistent salt derived from the secret key.
     """
     settings = get_settings()
-    return hashlib.sha256(
-        f"{settings.api_secret_key}:{api_key}".encode()
-    ).hexdigest()
+    return hashlib.sha256(f"{settings.api_secret_key}:{api_key}".encode()).hexdigest()
 
 
 def generate_api_key(prefix: str = "omni") -> str:
@@ -59,6 +57,7 @@ def verify_api_key(provided_key: str, stored_hash: str) -> bool:
 # ---------------------------------------------------------------------------
 # Authentication Dependencies
 # ---------------------------------------------------------------------------
+
 
 async def authenticate_api_key(
     request: Request,
@@ -139,7 +138,7 @@ async def enforce_rate_limit(
                     "error": "service_unavailable",
                     "message": "Rate limiting service is temporarily unavailable.",
                 },
-            )
+            ) from None
         logger.warning("Redis unavailable — rate limiting disabled")
         return api_key
 

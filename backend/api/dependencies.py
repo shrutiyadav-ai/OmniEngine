@@ -7,9 +7,7 @@ authentication, and request context.
 
 from __future__ import annotations
 
-import uuid
-from collections.abc import AsyncGenerator
-from typing import Annotated
+from typing import TYPE_CHECKING, Annotated
 
 from fastapi import Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -20,6 +18,8 @@ from backend.core.logging_config import correlation_id_var, generate_correlation
 from backend.core.redis_client import CostTracker, RateLimiter, SessionCache, get_redis
 from backend.core.security import RateLimitedKey
 
+if TYPE_CHECKING:
+    from collections.abc import AsyncGenerator
 
 # =============================================================================
 # Type Aliases for Clean Dependency Injection
@@ -38,6 +38,7 @@ AppSettings = Annotated[Settings, Depends(get_settings)]
 # =============================================================================
 # Redis Service Dependencies
 # =============================================================================
+
 
 async def get_session_cache() -> SessionCache:
     """Provide a SessionCache instance backed by the global Redis pool."""
@@ -62,6 +63,7 @@ CostTrackerDep = Annotated[CostTracker, Depends(get_cost_tracker)]
 # =============================================================================
 # Request Context
 # =============================================================================
+
 
 class RequestContext:
     """

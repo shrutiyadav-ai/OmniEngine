@@ -11,8 +11,7 @@ Full implementation will be completed in Phase 3.
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
-from typing import Optional
+from datetime import UTC, datetime
 
 from sqlalchemy import (
     Boolean,
@@ -51,12 +50,8 @@ class User(Base):
 
     __tablename__ = "users"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
-    api_key_hash: Mapped[str] = mapped_column(
-        String(128), unique=True, nullable=False, index=True
-    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    api_key_hash: Mapped[str] = mapped_column(String(128), unique=True, nullable=False, index=True)
     display_name: Mapped[str] = mapped_column(String(255), nullable=False, default="User")
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     tier: Mapped[str] = mapped_column(
@@ -64,23 +59,21 @@ class User(Base):
     )  # free, pro, enterprise
     total_tokens_used: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     total_cost_usd: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
-    metadata_json: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
+    metadata_json: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
     # --- Future OAuth2 extension fields ---
-    email: Mapped[Optional[str]] = mapped_column(
-        String(255), unique=True, nullable=True, index=True
-    )
-    hashed_password: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
-    oauth_provider: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
-    oauth_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    email: Mapped[str | None] = mapped_column(String(255), unique=True, nullable=True, index=True)
+    hashed_password: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    oauth_provider: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    oauth_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
     )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
-        default=lambda: datetime.now(timezone.utc),
-        onupdate=lambda: datetime.now(timezone.utc),
+        default=lambda: datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC),
         nullable=False,
     )
 
@@ -98,32 +91,33 @@ class Session(Base):
 
     __tablename__ = "sessions"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )
     title: Mapped[str] = mapped_column(String(500), default="New Chat", nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
-    model_preference: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    model_preference: Mapped[str | None] = mapped_column(String(100), nullable=True)
     total_tokens: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     total_cost_usd: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
-    metadata_json: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
+    metadata_json: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
     )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
-        default=lambda: datetime.now(timezone.utc),
-        onupdate=lambda: datetime.now(timezone.utc),
+        default=lambda: datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC),
         nullable=False,
     )
 
     # Relationships
     user: Mapped[User] = relationship("User", back_populates="sessions")
     messages: Mapped[list[Message]] = relationship(
-        "Message", back_populates="session", cascade="all, delete-orphan", lazy="selectin",
+        "Message",
+        back_populates="session",
+        cascade="all, delete-orphan",
+        lazy="selectin",
         order_by="Message.sequence_number",
     )
     memory_summaries: Mapped[list[MemorySummary]] = relationship(
@@ -144,41 +138,37 @@ class Message(Base):
 
     __tablename__ = "messages"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     session_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("sessions.id", ondelete="CASCADE"), nullable=False
     )
-    role: Mapped[str] = mapped_column(
-        String(20), nullable=False
-    )  # user, assistant, system, tool
+    role: Mapped[str] = mapped_column(String(20), nullable=False)  # user, assistant, system, tool
     content: Mapped[str] = mapped_column(Text, nullable=False)
     sequence_number: Mapped[int] = mapped_column(Integer, nullable=False)
 
     # Token tracking
     token_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
-    model_used: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    model_used: Mapped[str | None] = mapped_column(String(100), nullable=True)
     cost_usd: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
-    latency_ms: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    latency_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
 
     # Tool call tracking
-    tool_calls: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
-    tool_results: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
+    tool_calls: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    tool_results: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
     # Internal monologue (hidden from user)
-    internal_monologue: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    internal_monologue: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # Attachments (images, files)
-    attachments: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
+    attachments: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
     # Safety
-    safety_flags: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
-    confidence_score: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    safety_flags: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    confidence_score: Mapped[float | None] = mapped_column(Float, nullable=True)
 
-    metadata_json: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
+    metadata_json: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
     )
 
     # Relationships
@@ -201,9 +191,7 @@ class MemorySummary(Base):
 
     __tablename__ = "memory_summaries"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     session_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("sessions.id", ondelete="CASCADE"), nullable=False
     )
@@ -212,12 +200,12 @@ class MemorySummary(Base):
         Integer, nullable=False
     )  # Count of messages this summary covers
     token_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
-    embedding_id: Mapped[Optional[str]] = mapped_column(
+    embedding_id: Mapped[str | None] = mapped_column(
         String(255), nullable=True
     )  # Reference to Qdrant vector
-    metadata_json: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
+    metadata_json: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
     )
 
     # Relationships
@@ -238,9 +226,7 @@ class EntityMemory(Base):
 
     __tablename__ = "entity_memories"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )
@@ -252,20 +238,16 @@ class EntityMemory(Base):
     )  # e.g., "preferred_language", "user_name"
     content: Mapped[str] = mapped_column(Text, nullable=False)
     confidence_score: Mapped[float] = mapped_column(Float, default=0.5, nullable=False)
-    source_session_id: Mapped[Optional[uuid.UUID]] = mapped_column(
-        UUID(as_uuid=True), nullable=True
-    )
-    embedding_id: Mapped[Optional[str]] = mapped_column(
-        String(255), nullable=True
-    )  # Qdrant vector ID
-    metadata_json: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
+    source_session_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    embedding_id: Mapped[str | None] = mapped_column(String(255), nullable=True)  # Qdrant vector ID
+    metadata_json: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
     )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
-        default=lambda: datetime.now(timezone.utc),
-        onupdate=lambda: datetime.now(timezone.utc),
+        default=lambda: datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC),
         nullable=False,
     )
 
@@ -286,20 +268,12 @@ class TelemetryLog(Base):
 
     __tablename__ = "telemetry_logs"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
-    session_id: Mapped[Optional[uuid.UUID]] = mapped_column(
-        UUID(as_uuid=True), nullable=True
-    )
-    user_id: Mapped[Optional[uuid.UUID]] = mapped_column(
-        UUID(as_uuid=True), nullable=True
-    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    session_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    user_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     request_id: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
     model: Mapped[str] = mapped_column(String(100), nullable=False)
-    provider: Mapped[str] = mapped_column(
-        String(50), nullable=False
-    )  # openai, anthropic, google
+    provider: Mapped[str] = mapped_column(String(50), nullable=False)  # openai, anthropic, google
 
     # Token counts
     prompt_tokens: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
@@ -307,20 +281,20 @@ class TelemetryLog(Base):
     total_tokens: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
 
     # Performance
-    ttft_ms: Mapped[Optional[float]] = mapped_column(Float, nullable=True)  # Time to first token
-    total_latency_ms: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    ttft_ms: Mapped[float | None] = mapped_column(Float, nullable=True)  # Time to first token
+    total_latency_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
 
     # Cost
     estimated_cost_usd: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
 
     # Context
-    tools_used: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
-    safety_flags: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
-    error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    metadata_json: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
+    tools_used: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    safety_flags: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    metadata_json: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
     )
 
     __table_args__ = (
@@ -330,4 +304,6 @@ class TelemetryLog(Base):
     )
 
     def __repr__(self) -> str:
-        return f"<TelemetryLog(id={self.id}, model={self.model}, cost=${self.estimated_cost_usd:.4f})>"
+        return (
+            f"<TelemetryLog(id={self.id}, model={self.model}, cost=${self.estimated_cost_usd:.4f})>"
+        )

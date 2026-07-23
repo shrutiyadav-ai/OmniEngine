@@ -8,9 +8,10 @@ and injects relevant historical memories and context into the state.
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from backend.agents.state import AgentState
+if TYPE_CHECKING:
+    from backend.agents.state import AgentState
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +31,7 @@ async def rag_retriever_node(state: AgentState) -> dict[str, Any]:
 
     try:
         from backend.memory.vector_store import get_vector_store
+
         vector_store = get_vector_store()
 
         results = await vector_store.search_memories(
@@ -39,11 +41,13 @@ async def rag_retriever_node(state: AgentState) -> dict[str, Any]:
         )
 
         for item in results:
-            retrieved_memories.append({
-                "content": item.get("content"),
-                "memory_type": item.get("memory_type", "general"),
-                "score": item.get("score", 0.0),
-            })
+            retrieved_memories.append(
+                {
+                    "content": item.get("content"),
+                    "memory_type": item.get("memory_type", "general"),
+                    "score": item.get("score", 0.0),
+                }
+            )
 
         logger.info("RAG search retrieved %d relevant memory chunks", len(retrieved_memories))
 
@@ -63,8 +67,10 @@ async def rag_retriever_node(state: AgentState) -> dict[str, Any]:
         "retrieved_memories": retrieved_memories,
         "context_summary": context_summary,
         "next_node": next_node,
-        "scratchpad": [{
-            "node": "rag_retriever",
-            "memories_found": len(retrieved_memories),
-        }],
+        "scratchpad": [
+            {
+                "node": "rag_retriever",
+                "memories_found": len(retrieved_memories),
+            }
+        ],
     }

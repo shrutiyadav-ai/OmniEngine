@@ -11,7 +11,7 @@ import json
 import logging
 from typing import Any
 
-from langchain_core.messages import SystemMessage, HumanMessage
+from langchain_core.messages import HumanMessage, SystemMessage
 
 from backend.agents.model_router import ModelRouter
 from backend.core.config import get_settings
@@ -42,7 +42,7 @@ class Summarizer:
         self.settings = get_settings()
 
     async def summarize_messages(
-        self, 
+        self,
         messages: list[dict[str, Any]],
     ) -> dict[str, Any]:
         """
@@ -66,7 +66,9 @@ class Summarizer:
 
         try:
             response = await llm.ainvoke(prompt)
-            content = response.content if isinstance(response.content, str) else str(response.content)
+            content = (
+                response.content if isinstance(response.content, str) else str(response.content)
+            )
 
             if "```json" in content:
                 content = content.split("```json")[1].split("```")[0].strip()
@@ -74,8 +76,14 @@ class Summarizer:
                 content = content.split("```")[1].split("```")[0].strip()
 
             data = json.loads(content)
-            logger.info("Generated summary (%d chars) and %d entities", len(data.get("summary", "")), len(data.get("entities", [])))
-            return data
+            logger.info(
+                "Generated summary (%d chars) and %d entities",
+                len(data.get("summary", "")),
+                len(data.get("entities", [])),
+            )
+            from typing import cast
+
+            return cast("dict[str, Any]", data)
 
         except Exception as e:
             logger.error("Summarizer failed: %s", str(e))

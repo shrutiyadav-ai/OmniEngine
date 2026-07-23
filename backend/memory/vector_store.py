@@ -13,12 +13,7 @@ from typing import Any
 
 from qdrant_client import AsyncQdrantClient
 from qdrant_client.models import (
-    Distance,
-    FieldCondition,
-    Filter,
-    MatchValue,
     PointStruct,
-    VectorParams,
 )
 
 from backend.core.config import Settings, get_settings
@@ -45,11 +40,14 @@ class VectorStore:
         """
         try:
             from langchain_openai import OpenAIEmbeddings
+
             embeddings = OpenAIEmbeddings(
                 model=self.settings.embedding_model,
                 api_key=self.settings.openai_api_key,
             )
-            return await embeddings.aembed_query(text)
+            from typing import cast
+
+            return cast("list[float]", await embeddings.aembed_query(text))
         except Exception as e:
             logger.warning("Embedding generation failed, returning dummy vector: %s", str(e))
             # Dummy normalized vector for development fallback
@@ -112,13 +110,15 @@ class VectorStore:
             memories = []
             for hit in results:
                 payload = hit.payload or {}
-                memories.append({
-                    "id": hit.id,
-                    "score": hit.score,
-                    "content": payload.get("content", ""),
-                    "memory_type": payload.get("memory_type", ""),
-                    "confidence_score": payload.get("confidence_score", 0.0),
-                })
+                memories.append(
+                    {
+                        "id": hit.id,
+                        "score": hit.score,
+                        "content": payload.get("content", ""),
+                        "memory_type": payload.get("memory_type", ""),
+                        "confidence_score": payload.get("confidence_score", 0.0),
+                    }
+                )
             return memories
 
         except Exception as e:

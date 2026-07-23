@@ -7,38 +7,41 @@ as the contract between the frontend and backend.
 
 from __future__ import annotations
 
-import uuid
-from datetime import datetime
-from enum import Enum
-from typing import Any, Literal
+from enum import StrEnum
+from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+if TYPE_CHECKING:
+    import uuid
+    from datetime import datetime
 
 # =============================================================================
 # Enums
 # =============================================================================
 
-class MessageRole(str, Enum):
+
+class MessageRole(StrEnum):
     USER = "user"
     ASSISTANT = "assistant"
     SYSTEM = "system"
     TOOL = "tool"
 
 
-class StreamEventType(str, Enum):
+class StreamEventType(StrEnum):
     """SSE event types sent to the client."""
-    TOKEN = "token"                    # Streamed text token
-    TOOL_START = "tool_start"          # Tool invocation started
-    TOOL_RESULT = "tool_result"        # Tool result received
-    THINKING = "thinking"              # Internal processing status
-    ERROR = "error"                    # Error during generation
-    DONE = "done"                      # Generation complete
-    METADATA = "metadata"              # Response metadata (cost, model, etc.)
-    COST_WARNING = "cost_warning"      # Session approaching cost cap
+
+    TOKEN = "token"  # noqa: S105  # Streamed text token
+    TOOL_START = "tool_start"  # Tool invocation started
+    TOOL_RESULT = "tool_result"  # Tool result received
+    THINKING = "thinking"  # Internal processing status
+    ERROR = "error"  # Error during generation
+    DONE = "done"  # Generation complete
+    METADATA = "metadata"  # Response metadata (cost, model, etc.)
+    COST_WARNING = "cost_warning"  # Session approaching cost cap
 
 
-class ModelTier(str, Enum):
+class ModelTier(StrEnum):
     SMALL = "small"
     MEDIUM = "medium"
     LARGE = "large"
@@ -49,26 +52,17 @@ class ModelTier(str, Enum):
 # Request Models
 # =============================================================================
 
+
 class Attachment(BaseModel):
     """File or image attachment in a chat message."""
 
     model_config = ConfigDict(str_strip_whitespace=True)
 
-    type: Literal["image", "file", "url"] = Field(
-        ..., description="Type of attachment"
-    )
-    url: str | None = Field(
-        None, description="URL or base64 data URI of the attachment"
-    )
-    content: str | None = Field(
-        None, description="Raw text content (for files)"
-    )
-    filename: str | None = Field(
-        None, description="Original filename", max_length=255
-    )
-    mime_type: str | None = Field(
-        None, description="MIME type of the attachment"
-    )
+    type: Literal["image", "file", "url"] = Field(..., description="Type of attachment")
+    url: str | None = Field(None, description="URL or base64 data URI of the attachment")
+    content: str | None = Field(None, description="Raw text content (for files)")
+    filename: str | None = Field(None, description="Original filename", max_length=255)
+    mime_type: str | None = Field(None, description="MIME type of the attachment")
 
 
 class ChatRequest(BaseModel):
@@ -77,7 +71,7 @@ class ChatRequest(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True)
 
     session_id: str | None = Field(
-        None,
+        default=None,
         description="Existing session ID. If None, a new session is created.",
     )
     message: str = Field(
@@ -92,21 +86,21 @@ class ChatRequest(BaseModel):
         description="Optional file/image attachments",
     )
     model_preference: str | None = Field(
-        None,
+        default=None,
         description="Preferred model (e.g., 'gpt-4o', 'claude-sonnet-4-20250514'). Overrides auto-routing.",
     )
     stream: bool = Field(
-        True,
+        default=True,
         description="Whether to stream the response via SSE",
     )
     temperature: float | None = Field(
-        None,
+        default=None,
         ge=0.0,
         le=2.0,
         description="Sampling temperature override",
     )
     system_prompt_override: str | None = Field(
-        None,
+        default=None,
         max_length=10_000,
         description="Custom system prompt (advanced usage)",
     )
@@ -116,12 +110,12 @@ class SessionCreateRequest(BaseModel):
     """Request to create a new chat session."""
 
     title: str = Field(
-        "New Chat",
+        default="New Chat",
         max_length=500,
         description="Session title",
     )
     model_preference: str | None = Field(
-        None,
+        default=None,
         description="Default model preference for this session",
     )
     metadata: dict[str, Any] = Field(
@@ -133,6 +127,7 @@ class SessionCreateRequest(BaseModel):
 # =============================================================================
 # Response Models
 # =============================================================================
+
 
 class MessageResponse(BaseModel):
     """A single message in a conversation."""
@@ -195,11 +190,13 @@ class StreamEvent(BaseModel):
         """Format as an SSE string."""
         import json
 
-        payload = json.dumps({
-            "event": self.event.value,
-            "data": self.data,
-            "metadata": self.metadata,
-        })
+        payload = json.dumps(
+            {
+                "event": self.event.value,
+                "data": self.data,
+                "metadata": self.metadata,
+            }
+        )
         return f"event: {self.event.value}\ndata: {payload}\n\n"
 
 

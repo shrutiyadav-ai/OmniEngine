@@ -29,9 +29,7 @@ _redis_pool: aioredis.Redis | None = None
 def get_redis() -> aioredis.Redis:
     """Return the global Redis client. Raises if not initialized."""
     if _redis_pool is None:
-        raise RuntimeError(
-            "Redis not initialized. Call init_redis() first."
-        )
+        raise RuntimeError("Redis not initialized. Call init_redis() first.")
     return _redis_pool
 
 
@@ -78,6 +76,7 @@ async def close_redis() -> None:
 # Session Cache Operations
 # =============================================================================
 
+
 class SessionCache:
     """Redis-backed session state cache with TTL management."""
 
@@ -95,7 +94,9 @@ class SessionCache:
         data = await self._redis.get(self._key(session_id))
         if data is None:
             return None
-        return json.loads(data)
+        from typing import cast
+
+        return cast("dict[str, Any]", json.loads(data))
 
     async def set(
         self,
@@ -137,6 +138,7 @@ class SessionCache:
 # =============================================================================
 # Rate Limiter (Sliding Window)
 # =============================================================================
+
 
 class RateLimiter:
     """Redis-based sliding window rate limiter."""
@@ -200,6 +202,7 @@ class RateLimiter:
 # Cost Tracker
 # =============================================================================
 
+
 class CostTracker:
     """
     Redis-backed per-session cost accumulator for cost-cap enforcement.
@@ -228,9 +231,7 @@ class CostTracker:
         # Set TTL if this is the first cost entry
         ttl = await self._redis.ttl(self._key(session_id))
         if ttl == -1:  # No TTL set
-            await self._redis.expire(
-                self._key(session_id), self._settings.redis_session_ttl
-            )
+            await self._redis.expire(self._key(session_id), self._settings.redis_session_ttl)
         return float(new_total)
 
     async def get_cost(self, session_id: str) -> float:

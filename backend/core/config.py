@@ -11,7 +11,7 @@ from __future__ import annotations
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import Field, field_validator
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -35,7 +35,7 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
 
     # API Security
-    api_secret_key: str = "CHANGE_ME_TO_A_RANDOM_64_CHAR_HEX_STRING"
+    api_secret_key: str = "CHANGE_ME_TO_A_RANDOM_64_CHAR_HEX_STRING"  # noqa: S105
     api_keys: str = "dev-key-change-me-in-production"
     cors_origins: str = "http://localhost:3000,http://localhost:8000"
 

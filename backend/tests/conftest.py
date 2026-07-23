@@ -7,7 +7,7 @@ Provides test settings, async HTTP client, and mock database/Redis fixtures.
 from __future__ import annotations
 
 import asyncio
-from typing import AsyncGenerator
+from typing import TYPE_CHECKING, Any
 
 import pytest
 import pytest_asyncio
@@ -16,9 +16,12 @@ from httpx import ASGITransport, AsyncClient
 from backend.core.config import Settings, get_settings
 from backend.main import app
 
+if TYPE_CHECKING:
+    from collections.abc import AsyncGenerator
+
 
 @pytest.fixture(scope="session")
-def event_loop():
+def event_loop() -> Any:
     """Create session-wide event loop for async tests."""
     loop = asyncio.get_event_loop_policy().new_event_loop()
     yield loop

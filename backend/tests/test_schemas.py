@@ -5,10 +5,15 @@ Unit tests for API Pydantic schemas.
 import pytest
 from pydantic import ValidationError
 
-from backend.api.schemas import ChatRequest, SessionCreateRequest, MessageRole, StreamEvent, StreamEventType
+from backend.api.schemas import (
+    ChatRequest,
+    SessionCreateRequest,
+    StreamEvent,
+    StreamEventType,
+)
 
 
-def test_chat_request_validation():
+def test_chat_request_validation() -> None:
     """Test valid and invalid ChatRequest payloads."""
     req = ChatRequest(message="Hello world", model_preference="gpt-4o")
     assert req.message == "Hello world"
@@ -19,14 +24,14 @@ def test_chat_request_validation():
         ChatRequest(message="")  # Empty message disallowed
 
 
-def test_session_create_validation():
+def test_session_create_validation() -> None:
     """Test SessionCreateRequest schema defaults."""
     req = SessionCreateRequest()
     assert req.title == "New Chat"
     assert req.model_preference is None
 
 
-def test_stream_event_sse_formatting():
+def test_stream_event_sse_formatting() -> None:
     """Test StreamEvent to SSE string serialization."""
     event = StreamEvent(
         event=StreamEventType.TOKEN,

@@ -10,10 +10,9 @@ Provides the `invoke_agent` streaming generator interface used by the FastAPI SS
 from __future__ import annotations
 
 import logging
-from collections.abc import AsyncGenerator
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from langgraph.graph import StateGraph, END
+from langgraph.graph import END, StateGraph
 
 from backend.agents.nodes.evaluator import evaluator_node
 from backend.agents.nodes.planner import planner_node
@@ -22,7 +21,11 @@ from backend.agents.nodes.response_formatter import response_formatter_node
 from backend.agents.nodes.supervisor import supervisor_node
 from backend.agents.nodes.tool_executor import tool_executor_node
 from backend.agents.state import AgentState, create_initial_state
-from backend.core.config import Settings
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncGenerator
+
+    from backend.core.config import Settings
 
 logger = logging.getLogger(__name__)
 
@@ -78,8 +81,8 @@ def build_graph() -> StateGraph:
         route_next,
         {
             "tool_executor": "tool_executor",  # Step loop / retries
-            "planner": "planner",              # Re-planning after 3 failures
-            "evaluator": "evaluator",          # Plan complete
+            "planner": "planner",  # Re-planning after 3 failures
+            "evaluator": "evaluator",  # Plan complete
         },
     )
 
@@ -93,7 +96,7 @@ def build_graph() -> StateGraph:
 _compiled_graph = None
 
 
-def get_orchestrator_graph():
+def get_orchestrator_graph() -> Any:
     """Return the compiled LangGraph instance."""
     global _compiled_graph  # noqa: PLW0603
     if _compiled_graph is None:
@@ -155,16 +158,26 @@ async def invoke_agent(
                         if latest.get("status") == "success":
                             yield {"type": "tool_result", "tool_name": tool_name}
                         else:
-                            yield {"type": "tool_start", "tool_name": tool_name, "description": f"Executing {tool_name}..."}
+                            yield {
+                                "type": "tool_start",
+                                "tool_name": tool_name,
+                                "description": f"Executing {tool_name}...",
+                            }
 
                 elif node_name == "evaluator":
                     score = node_output.get("confidence_score", 0.85)
-                    yield {"type": "thinking", "status": f"Evaluated response (confidence: {score:.2f})"}
+                    yield {
+                        "type": "thinking",
+                        "status": f"Evaluated response (confidence: {score:.2f})",
+                    }
 
                 elif node_name == "response_formatter":
                     model_used = node_output.get("model_used", "gpt-4o")
                     # Synthesize token response stream
-                    yield {"type": "token", "content": f"Answer to: {user_message}\n\nProcessed via multi-agent pipeline."}
+                    yield {
+                        "type": "token",
+                        "content": f"Answer to: {user_message}\n\nProcessed via multi-agent pipeline.",
+                    }
                     yield {
                         "type": "metadata",
                         "model": model_used,

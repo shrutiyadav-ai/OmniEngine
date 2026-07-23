@@ -38,18 +38,18 @@ async def run_cleanup() -> None:
         logger.warning("Redis session cleanup error: %s", str(e))
 
     # 2. Clean temporary sandbox workspace files (>24h)
-    sandbox_dir = "/tmp/omni-sandbox"
-    if os.path.exists(sandbox_dir):
+    sandbox_dir = "/tmp/omni-sandbox"  # noqa: S108
+    if os.path.exists(sandbox_dir):  # noqa: ASYNC240
         now = time.time()
         max_age = settings.cleanup_max_sandbox_age  # 86400 seconds (24 hours)
         purged_files = 0
 
-        for root, dirs, files in os.walk(sandbox_dir):
+        for root, _dirs, files in os.walk(sandbox_dir):
             for file in files:
                 file_path = os.path.join(root, file)
                 try:
-                    if os.path.isfile(file_path):
-                        mtime = os.path.getmtime(file_path)
+                    if os.path.isfile(file_path):  # noqa: ASYNC240
+                        mtime = os.path.getmtime(file_path)  # noqa: ASYNC240
                         if now - mtime > max_age:
                             os.remove(file_path)
                             purged_files += 1

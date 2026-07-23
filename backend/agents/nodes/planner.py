@@ -11,7 +11,7 @@ import json
 import logging
 from typing import Any
 
-from langchain_core.messages import SystemMessage, HumanMessage
+from langchain_core.messages import HumanMessage, SystemMessage
 
 from backend.agents.model_router import ModelRouter
 from backend.agents.prompts import PLANNER_PROMPT
@@ -28,7 +28,9 @@ async def planner_node(state: AgentState) -> dict[str, Any]:
     Writes: `current_plan`, `current_step_index`, `plan_iteration`, `next_node`, `scratchpad`
     """
     plan_iteration = state.get("plan_iteration", 0) + 1
-    logger.info("Executing Planner node (iteration %d) for session %s", plan_iteration, state["session_id"])
+    logger.info(
+        "Executing Planner node (iteration %d) for session %s", plan_iteration, state["session_id"]
+    )
 
     user_message = state["user_message"]
     active_tools = state.get("active_tools", [])
@@ -62,16 +64,18 @@ async def planner_node(state: AgentState) -> dict[str, Any]:
 
         plan: list[TaskStep] = []
         for item in raw_plan:
-            plan.append(TaskStep(
-                step_id=item.get("step_id", len(plan) + 1),
-                description=item.get("description", ""),
-                tool=item.get("tool"),
-                model_tier=item.get("model_tier", "medium"),
-                success_criteria=item.get("success_criteria", ""),
-                status="pending",
-                result=None,
-                retries=0,
-            ))
+            plan.append(
+                TaskStep(
+                    step_id=item.get("step_id", len(plan) + 1),
+                    description=item.get("description", ""),
+                    tool=item.get("tool"),
+                    model_tier=item.get("model_tier", "medium"),
+                    success_criteria=item.get("success_criteria", ""),
+                    status="pending",
+                    result=None,
+                    retries=0,
+                )
+            )
 
         logger.info("Generated plan with %d steps", len(plan))
 
@@ -81,11 +85,13 @@ async def planner_node(state: AgentState) -> dict[str, Any]:
             "plan_iteration": plan_iteration,
             "consecutive_tool_failures": 0,  # Reset counter on new plan
             "next_node": "rag_retriever",
-            "scratchpad": [{
-                "node": "planner",
-                "plan_steps_count": len(plan),
-                "iteration": plan_iteration,
-            }],
+            "scratchpad": [
+                {
+                    "node": "planner",
+                    "plan_steps_count": len(plan),
+                    "iteration": plan_iteration,
+                }
+            ],
         }
 
     except Exception as e:
@@ -108,9 +114,11 @@ async def planner_node(state: AgentState) -> dict[str, Any]:
             "current_step_index": 0,
             "plan_iteration": plan_iteration,
             "next_node": "rag_retriever",
-            "scratchpad": [{
-                "node": "planner",
-                "fallback": True,
-                "error": str(e),
-            }],
+            "scratchpad": [
+                {
+                    "node": "planner",
+                    "fallback": True,
+                    "error": str(e),
+                }
+            ],
         }

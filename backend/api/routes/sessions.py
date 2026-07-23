@@ -9,20 +9,24 @@ from __future__ import annotations
 
 import logging
 import uuid
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 
-from backend.api.dependencies import RequestCtx
 from backend.api.schemas import (
+    MessageResponse,
+    MessageRole,
     SessionCreateRequest,
     SessionDetailResponse,
     SessionListResponse,
     SessionResponse,
 )
-from backend.memory.models import Message, Session
+from backend.memory.models import Session
+
+if TYPE_CHECKING:
+    from backend.api.dependencies import RequestCtx
 
 logger = logging.getLogger(__name__)
 
@@ -172,21 +176,21 @@ async def get_session(
         created_at=session.created_at,
         updated_at=session.updated_at,
         messages=[
-            {
-                "id": m.id,
-                "role": m.role,
-                "content": m.content,
-                "sequence_number": m.sequence_number,
-                "token_count": m.token_count,
-                "model_used": m.model_used,
-                "cost_usd": m.cost_usd,
-                "latency_ms": m.latency_ms,
-                "tool_calls": m.tool_calls,
-                "tool_results": m.tool_results,
-                "attachments": m.attachments,
-                "confidence_score": m.confidence_score,
-                "created_at": m.created_at,
-            }
+            MessageResponse(
+                id=m.id,
+                role=MessageRole(m.role),
+                content=m.content,
+                sequence_number=m.sequence_number,
+                token_count=m.token_count,
+                model_used=m.model_used,
+                cost_usd=m.cost_usd,
+                latency_ms=m.latency_ms,
+                tool_calls=m.tool_calls,
+                tool_results=m.tool_results,
+                attachments=m.attachments,
+                confidence_score=m.confidence_score,
+                created_at=m.created_at,
+            )
             for m in sorted(session.messages, key=lambda x: x.sequence_number)
         ],
     )

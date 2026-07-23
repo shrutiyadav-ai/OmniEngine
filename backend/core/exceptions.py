@@ -21,6 +21,7 @@ logger = logging.getLogger(__name__)
 # Base Exception
 # =============================================================================
 
+
 class OmniEngineError(Exception):
     """Base exception for all OmniEngine errors."""
 
@@ -41,6 +42,7 @@ class OmniEngineError(Exception):
 # =============================================================================
 # Domain-Specific Exceptions
 # =============================================================================
+
 
 class ModelRoutingError(OmniEngineError):
     """Raised when model selection or fallback chain exhaustion occurs."""
@@ -164,6 +166,7 @@ class AgentRecursionError(OmniEngineError):
 # =============================================================================
 # Global Exception Handlers
 # =============================================================================
+
 
 def register_exception_handlers(app: FastAPI) -> None:
     """Register global exception handlers with the FastAPI application."""

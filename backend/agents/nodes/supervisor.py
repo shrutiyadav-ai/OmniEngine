@@ -9,13 +9,15 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from langchain_core.messages import SystemMessage, HumanMessage
+from langchain_core.messages import HumanMessage, SystemMessage
 
 from backend.agents.model_router import ModelRouter
 from backend.agents.prompts import SUPERVISOR_PROMPT
-from backend.agents.state import AgentState
+
+if TYPE_CHECKING:
+    from backend.agents.state import AgentState
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +53,7 @@ async def supervisor_node(state: AgentState) -> dict[str, Any]:
     try:
         response = await llm.ainvoke(prompt)
         content = response.content if isinstance(response.content, str) else str(response.content)
-        
+
         # Clean JSON markdown fences if present
         if "```json" in content:
             content = content.split("```json")[1].split("```")[0].strip()
@@ -83,25 +85,30 @@ async def supervisor_node(state: AgentState) -> dict[str, Any]:
             "model_tier": suggested_tier,
             "active_tools": required_tools,
             "next_node": next_node,
-            "scratchpad": [{
-                "node": "supervisor",
-                "analysis": analysis,
-            }],
+            "scratchpad": [
+                {
+                    "node": "supervisor",
+                    "analysis": analysis,
+                }
+            ],
         }
 
     except Exception as e:
         logger.warning("Supervisor LLM parsing failed, using fallback: %s", str(e))
         # Fallback routing logic
         has_tools = len(attachments) > 0 or any(
-            kw in user_message.lower() for kw in ["search", "google", "find", "code", "run", "calculate"]
+            kw in user_message.lower()
+            for kw in ["search", "google", "find", "code", "run", "calculate"]
         )
         return {
             "model_tier": "medium",
             "active_tools": ["web_search"] if "search" in user_message.lower() else [],
             "next_node": "planner" if has_tools else "rag_retriever",
-            "scratchpad": [{
-                "node": "supervisor",
-                "fallback": True,
-                "error": str(e),
-            }],
+            "scratchpad": [
+                {
+                    "node": "supervisor",
+                    "fallback": True,
+                    "error": str(e),
+                }
+            ],
         }

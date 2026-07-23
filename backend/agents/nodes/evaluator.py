@@ -9,13 +9,15 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from langchain_core.messages import SystemMessage, HumanMessage
+from langchain_core.messages import HumanMessage, SystemMessage
 
 from backend.agents.model_router import ModelRouter
 from backend.agents.prompts import EVALUATOR_PROMPT
-from backend.agents.state import AgentState
+
+if TYPE_CHECKING:
+    from backend.agents.state import AgentState
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +33,7 @@ async def evaluator_node(state: AgentState) -> dict[str, Any]:
 
     user_message = state["user_message"]
     plan = state.get("current_plan", [])
-    
+
     # Collect plan step results
     step_results = [f"Step {s.get('step_id')}: {s.get('result')}" for s in plan if s.get("result")]
     combined_results = "\n".join(step_results) if step_results else "Direct LLM execution"
@@ -64,7 +66,9 @@ async def evaluator_node(state: AgentState) -> dict[str, Any]:
 
         logger.info(
             "Evaluation complete: confidence=%.2f, acceptable=%s, flags=%s",
-            confidence_score, is_acceptable, safety_flags
+            confidence_score,
+            is_acceptable,
+            safety_flags,
         )
 
         return {
@@ -72,11 +76,13 @@ async def evaluator_node(state: AgentState) -> dict[str, Any]:
             "safety_flags": safety_flags,
             "should_respond": True,
             "next_node": "response_formatter",
-            "scratchpad": [{
-                "node": "evaluator",
-                "confidence": confidence_score,
-                "is_acceptable": is_acceptable,
-            }],
+            "scratchpad": [
+                {
+                    "node": "evaluator",
+                    "confidence": confidence_score,
+                    "is_acceptable": is_acceptable,
+                }
+            ],
         }
 
     except Exception as e:
@@ -86,9 +92,11 @@ async def evaluator_node(state: AgentState) -> dict[str, Any]:
             "safety_flags": [],
             "should_respond": True,
             "next_node": "response_formatter",
-            "scratchpad": [{
-                "node": "evaluator",
-                "fallback": True,
-                "error": str(e),
-            }],
+            "scratchpad": [
+                {
+                    "node": "evaluator",
+                    "fallback": True,
+                    "error": str(e),
+                }
+            ],
         }

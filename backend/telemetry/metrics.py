@@ -9,13 +9,14 @@ from __future__ import annotations
 
 import logging
 import uuid
-from typing import Any
-
-from sqlalchemy.ext.asyncio import AsyncSession
+from typing import TYPE_CHECKING, Any
 
 from backend.core.config import get_settings
 from backend.memory.models import TelemetryLog
 from backend.safety.pii_redactor import PIIRedactor
+
+if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
 
@@ -65,7 +66,9 @@ class TelemetryTracker:
 
             logger.info(
                 "Telemetry logged for request %s (tokens: %d, cost: $%.4f)",
-                request_id, prompt_tokens + completion_tokens, cost_usd
+                request_id,
+                prompt_tokens + completion_tokens,
+                cost_usd,
             )
         except Exception as e:
             logger.warning("Failed to record telemetry log: %s", str(e))

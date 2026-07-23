@@ -21,7 +21,9 @@ class WebSearchInput(BaseModel):
     """Input schema for web search tool."""
 
     query: str = Field(..., description="The search query string", min_length=2)
-    max_results: int = Field(5, description="Maximum number of search results to return", ge=1, le=10)
+    max_results: int = Field(
+        5, description="Maximum number of search results to return", ge=1, le=10
+    )
     search_depth: str = Field("advanced", description="Search depth: 'basic' or 'advanced'")
 
 
@@ -29,10 +31,14 @@ class WebSearchTool(BaseTool):
     """Tavily web search tool implementation."""
 
     name = "web_search"
-    description = "Searches the live web for up-to-date information, news, dates, and real-time data."
+    description = (
+        "Searches the live web for up-to-date information, news, dates, and real-time data."
+    )
     args_schema = WebSearchInput
 
-    async def execute(self, query: str, max_results: int = 5, search_depth: str = "advanced", **kwargs: Any) -> str:
+    async def execute(  # type: ignore[override]
+        self, query: str, max_results: int = 5, search_depth: str = "advanced", **kwargs: Any
+    ) -> str:
         """Execute Tavily search."""
         settings = get_settings()
 
@@ -42,6 +48,7 @@ class WebSearchTool(BaseTool):
 
         try:
             from tavily import AsyncTavilyClient
+
             client = AsyncTavilyClient(api_key=settings.tavily_api_key)
 
             response = await client.search(

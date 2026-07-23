@@ -9,19 +9,20 @@ fallback chains across providers (OpenAI, Anthropic, Google).
 from __future__ import annotations
 
 import logging
-import time
 from dataclasses import dataclass, field
-from typing import Any, Literal
-
-from langchain_core.language_models import BaseChatModel
+from typing import TYPE_CHECKING, Any, Literal
 
 from backend.core.config import Settings, get_settings
+
+if TYPE_CHECKING:
+    from langchain_core.language_models import BaseChatModel
 
 logger = logging.getLogger(__name__)
 
 # =============================================================================
 # Model Registry
 # =============================================================================
+
 
 @dataclass
 class ModelSpec:
@@ -42,42 +43,70 @@ class ModelSpec:
 MODEL_REGISTRY: dict[str, ModelSpec] = {
     # OpenAI
     "gpt-4o-mini": ModelSpec(
-        name="gpt-4o-mini", provider="openai", tier="small",
-        max_context_tokens=128_000, supports_vision=True,
-        cost_per_1k_input=0.00015, cost_per_1k_output=0.0006,
+        name="gpt-4o-mini",
+        provider="openai",
+        tier="small",
+        max_context_tokens=128_000,
+        supports_vision=True,
+        cost_per_1k_input=0.00015,
+        cost_per_1k_output=0.0006,
     ),
     "gpt-4o": ModelSpec(
-        name="gpt-4o", provider="openai", tier="medium",
-        max_context_tokens=128_000, supports_vision=True,
-        cost_per_1k_input=0.0025, cost_per_1k_output=0.01,
+        name="gpt-4o",
+        provider="openai",
+        tier="medium",
+        max_context_tokens=128_000,
+        supports_vision=True,
+        cost_per_1k_input=0.0025,
+        cost_per_1k_output=0.01,
     ),
     "o1": ModelSpec(
-        name="o1", provider="openai", tier="reasoning",
-        max_context_tokens=200_000, supports_vision=True,
+        name="o1",
+        provider="openai",
+        tier="reasoning",
+        max_context_tokens=200_000,
+        supports_vision=True,
         supports_streaming=False,
-        cost_per_1k_input=0.015, cost_per_1k_output=0.06,
+        cost_per_1k_input=0.015,
+        cost_per_1k_output=0.06,
     ),
     # Anthropic
     "claude-sonnet-4-20250514": ModelSpec(
-        name="claude-sonnet-4-20250514", provider="anthropic", tier="large",
-        max_context_tokens=200_000, supports_vision=True,
-        cost_per_1k_input=0.003, cost_per_1k_output=0.015,
+        name="claude-sonnet-4-20250514",
+        provider="anthropic",
+        tier="large",
+        max_context_tokens=200_000,
+        supports_vision=True,
+        cost_per_1k_input=0.003,
+        cost_per_1k_output=0.015,
     ),
     "claude-haiku-3-5": ModelSpec(
-        name="claude-3-5-haiku-20241022", provider="anthropic", tier="small",
-        max_context_tokens=200_000, supports_vision=True,
-        cost_per_1k_input=0.0008, cost_per_1k_output=0.004,
+        name="claude-3-5-haiku-20241022",
+        provider="anthropic",
+        tier="small",
+        max_context_tokens=200_000,
+        supports_vision=True,
+        cost_per_1k_input=0.0008,
+        cost_per_1k_output=0.004,
     ),
     # Google
     "gemini-1.5-pro": ModelSpec(
-        name="gemini-1.5-pro", provider="google", tier="large",
-        max_context_tokens=1_000_000, supports_vision=True,
-        cost_per_1k_input=0.00125, cost_per_1k_output=0.005,
+        name="gemini-1.5-pro",
+        provider="google",
+        tier="large",
+        max_context_tokens=1_000_000,
+        supports_vision=True,
+        cost_per_1k_input=0.00125,
+        cost_per_1k_output=0.005,
     ),
     "gemini-1.5-flash": ModelSpec(
-        name="gemini-1.5-flash", provider="google", tier="small",
-        max_context_tokens=1_000_000, supports_vision=True,
-        cost_per_1k_input=0.000075, cost_per_1k_output=0.0003,
+        name="gemini-1.5-flash",
+        provider="google",
+        tier="small",
+        max_context_tokens=1_000_000,
+        supports_vision=True,
+        cost_per_1k_input=0.000075,
+        cost_per_1k_output=0.0003,
     ),
 }
 
@@ -86,15 +115,18 @@ MODEL_REGISTRY: dict[str, ModelSpec] = {
 # Latency Tracker
 # =============================================================================
 
+
 @dataclass
 class ProviderLatency:
     """Tracks exponential moving average of API latency per provider."""
 
-    latencies: dict[str, float] = field(default_factory=lambda: {
-        "openai": 0.5,
-        "anthropic": 0.5,
-        "google": 0.5,
-    })
+    latencies: dict[str, float] = field(
+        default_factory=lambda: {
+            "openai": 0.5,
+            "anthropic": 0.5,
+            "google": 0.5,
+        }
+    )
     alpha: float = 0.3  # EMA smoothing factor
 
     def update(self, provider: str, latency_seconds: float) -> None:
@@ -123,6 +155,7 @@ def get_latency_tracker() -> ProviderLatency:
 # =============================================================================
 # Model Router
 # =============================================================================
+
 
 class ModelRouter:
     """
@@ -181,12 +214,12 @@ class ModelRouter:
         if not candidates:
             # Last resort: use any available model
             candidates = [
-                spec for spec in MODEL_REGISTRY.values()
-                if self._check_api_key(spec.provider)
+                spec for spec in MODEL_REGISTRY.values() if self._check_api_key(spec.provider)
             ]
 
         if not candidates:
             from backend.core.exceptions import ModelRoutingError
+
             raise ModelRoutingError(
                 "No models available. Please configure at least one LLM API key.",
                 details={"tier": tier, "needs_vision": needs_vision},
@@ -203,7 +236,9 @@ class ModelRouter:
         selected = candidates[0]
         logger.info(
             "Model selected: %s (tier=%s, provider=%s, latency=%.2fs)",
-            selected.name, selected.tier, selected.provider,
+            selected.name,
+            selected.tier,
+            selected.provider,
             self.latency.get(selected.provider),
         )
         return selected
@@ -252,18 +287,23 @@ class ModelRouter:
             A configured BaseChatModel instance.
         """
         temp = temperature if temperature is not None else 0.7
-        kwargs: dict[str, Any] = {"temperature": temp, "streaming": streaming and spec.supports_streaming}
+        kwargs: dict[str, Any] = {
+            "temperature": temp,
+            "streaming": streaming and spec.supports_streaming,
+        }
 
         if spec.provider == "openai":
             from langchain_openai import ChatOpenAI
+
             return ChatOpenAI(
                 model=spec.name,
                 api_key=self.settings.openai_api_key,
                 **kwargs,
             )
 
-        elif spec.provider == "anthropic":
+        if spec.provider == "anthropic":
             from langchain_anthropic import ChatAnthropic
+
             return ChatAnthropic(
                 model=spec.name,
                 api_key=self.settings.anthropic_api_key,
@@ -271,17 +311,18 @@ class ModelRouter:
                 **kwargs,
             )
 
-        elif spec.provider == "google":
+        if spec.provider == "google":
             from langchain_google_genai import ChatGoogleGenerativeAI
+
             return ChatGoogleGenerativeAI(
                 model=spec.name,
                 google_api_key=self.settings.google_genai_api_key,
                 **kwargs,
             )
 
-        else:
-            from backend.core.exceptions import ModelRoutingError
-            raise ModelRoutingError(f"Unknown provider: {spec.provider}")
+        from backend.core.exceptions import ModelRoutingError
+
+        raise ModelRoutingError(f"Unknown provider: {spec.provider}")
 
     def estimate_cost(
         self,
@@ -319,9 +360,18 @@ class ModelRouter:
     def _check_api_key(self, provider: str) -> bool:
         """Check if the API key for a provider is configured."""
         if provider == "openai":
-            return bool(self.settings.openai_api_key and self.settings.openai_api_key != "sk-your-openai-api-key-here")
-        elif provider == "anthropic":
-            return bool(self.settings.anthropic_api_key and self.settings.anthropic_api_key != "sk-ant-your-anthropic-api-key-here")
-        elif provider == "google":
-            return bool(self.settings.google_genai_api_key and self.settings.google_genai_api_key != "your-google-genai-api-key-here")
+            return bool(
+                self.settings.openai_api_key
+                and self.settings.openai_api_key != "sk-your-openai-api-key-here"
+            )
+        if provider == "anthropic":
+            return bool(
+                self.settings.anthropic_api_key
+                and self.settings.anthropic_api_key != "sk-ant-your-anthropic-api-key-here"
+            )
+        if provider == "google":
+            return bool(
+                self.settings.google_genai_api_key
+                and self.settings.google_genai_api_key != "your-google-genai-api-key-here"
+            )
         return False

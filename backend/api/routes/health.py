@@ -8,8 +8,12 @@ and operational monitoring.
 from __future__ import annotations
 
 import logging
+from typing import TYPE_CHECKING
 
 from fastapi import APIRouter
+
+if TYPE_CHECKING:
+    from fastapi.responses import JSONResponse
 
 from backend.core.config import get_settings
 
@@ -38,7 +42,7 @@ async def health_check() -> dict[str, str]:
     summary="Readiness probe",
     description="Checks connectivity to PostgreSQL, Redis, and Qdrant.",
 )
-async def readiness_check() -> dict:
+async def readiness_check() -> JSONResponse:
     """
     Deep readiness check.
 

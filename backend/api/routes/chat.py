@@ -20,17 +20,20 @@ import json
 import logging
 import time
 import uuid
-from collections.abc import AsyncGenerator
-from datetime import datetime, timezone
+from typing import TYPE_CHECKING
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter
 from sqlalchemy import func, select
 from sse_starlette.sse import EventSourceResponse
 
-from backend.api.dependencies import RequestCtx
 from backend.api.schemas import ChatRequest, StreamEventType
 from backend.core.exceptions import CostCapExceededError, SafetyViolationError
 from backend.memory.models import Message, Session
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncGenerator
+
+    from backend.api.dependencies import RequestCtx
 
 logger = logging.getLogger(__name__)
 
@@ -141,19 +144,22 @@ async def _generate_response(
         if await ctx.cost_tracker.is_alert_threshold(session_id):
             yield {
                 "event": StreamEventType.COST_WARNING.value,
-                "data": json.dumps({
-                    "event": StreamEventType.COST_WARNING.value,
-                    "data": f"Session cost at ${current_cost:.2f} of ${cap:.2f} cap.",
-                    "metadata": {"current_cost": current_cost, "cap": cap},
-                }),
+                "data": json.dumps(
+                    {
+                        "event": StreamEventType.COST_WARNING.value,
+                        "data": f"Session cost at ${current_cost:.2f} of ${cap:.2f} cap.",
+                        "metadata": {"current_cost": current_cost, "cap": cap},
+                    }
+                ),
             }
 
         # =====================================================================
         # Step 3: Persist user message
         # =====================================================================
         seq_result = await ctx.db.execute(
-            select(func.coalesce(func.max(Message.sequence_number), 0))
-            .where(Message.session_id == session.id)
+            select(func.coalesce(func.max(Message.sequence_number), 0)).where(
+                Message.session_id == session.id
+            )
         )
         next_seq = (seq_result.scalar() or 0) + 1
 
@@ -204,11 +210,13 @@ async def _generate_response(
                     assistant_content += token
                     yield {
                         "event": StreamEventType.TOKEN.value,
-                        "data": json.dumps({
-                            "event": StreamEventType.TOKEN.value,
-                            "data": token,
-                            "metadata": {},
-                        }),
+                        "data": json.dumps(
+                            {
+                                "event": StreamEventType.TOKEN.value,
+                                "data": token,
+                                "metadata": {},
+                            }
+                        ),
                     }
 
                 elif event_type == "tool_start":
@@ -254,11 +262,13 @@ async def _generate_response(
                 assistant_content += chunk
                 yield {
                     "event": StreamEventType.TOKEN.value,
-                    "data": json.dumps({
-                        "event": StreamEventType.TOKEN.value,
-                        "data": chunk,
-                        "metadata": {},
-                    }),
+                    "data": json.dumps(
+                        {
+                            "event": StreamEventType.TOKEN.value,
+                            "data": chunk,
+                            "metadata": {},
+                        }
+                    ),
                 }
 
             model_used = "fallback"
@@ -300,28 +310,32 @@ async def _generate_response(
 
         yield {
             "event": StreamEventType.METADATA.value,
-            "data": json.dumps({
-                "event": StreamEventType.METADATA.value,
-                "data": "",
-                "metadata": {
-                    "session_id": session_id,
-                    "message_id": str(assistant_message.id),
-                    "model": model_used,
-                    "total_tokens": total_tokens,
-                    "cost_usd": round(cost_usd, 6),
-                    "latency_ms": round(latency_ms, 2),
-                    "confidence_score": confidence_score,
-                },
-            }),
+            "data": json.dumps(
+                {
+                    "event": StreamEventType.METADATA.value,
+                    "data": "",
+                    "metadata": {
+                        "session_id": session_id,
+                        "message_id": str(assistant_message.id),
+                        "model": model_used,
+                        "total_tokens": total_tokens,
+                        "cost_usd": round(cost_usd, 6),
+                        "latency_ms": round(latency_ms, 2),
+                        "confidence_score": confidence_score,
+                    },
+                }
+            ),
         }
 
         yield {
             "event": StreamEventType.DONE.value,
-            "data": json.dumps({
-                "event": StreamEventType.DONE.value,
-                "data": "[DONE]",
-                "metadata": {"session_id": session_id},
-            }),
+            "data": json.dumps(
+                {
+                    "event": StreamEventType.DONE.value,
+                    "data": "[DONE]",
+                    "metadata": {"session_id": session_id},
+                }
+            ),
         }
 
         logger.info(
@@ -339,7 +353,7 @@ async def _generate_response(
         yield _error_event("cost_cap_exceeded", e.message)
     except SafetyViolationError as e:
         yield _error_event("safety_violation", e.message)
-    except Exception as e:
+    except Exception:
         logger.exception("Unexpected error in chat stream")
         yield _error_event(
             "internal_error",
@@ -351,15 +365,18 @@ async def _generate_response(
 # SSE Event Helpers
 # =============================================================================
 
+
 def _error_event(error_code: str, message: str) -> dict:
     """Create an SSE error event."""
     return {
         "event": StreamEventType.ERROR.value,
-        "data": json.dumps({
-            "event": StreamEventType.ERROR.value,
-            "data": message,
-            "metadata": {"error_code": error_code},
-        }),
+        "data": json.dumps(
+            {
+                "event": StreamEventType.ERROR.value,
+                "data": message,
+                "metadata": {"error_code": error_code},
+            }
+        ),
     }
 
 
@@ -367,11 +384,13 @@ def _status_event(status_message: str) -> dict:
     """Create an SSE thinking/status event."""
     return {
         "event": StreamEventType.THINKING.value,
-        "data": json.dumps({
-            "event": StreamEventType.THINKING.value,
-            "data": status_message,
-            "metadata": {},
-        }),
+        "data": json.dumps(
+            {
+                "event": StreamEventType.THINKING.value,
+                "data": status_message,
+                "metadata": {},
+            }
+        ),
     }
 
 
@@ -379,9 +398,11 @@ def _tool_event(event_type: StreamEventType, tool_name: str, description: str) -
     """Create an SSE tool event."""
     return {
         "event": event_type.value,
-        "data": json.dumps({
-            "event": event_type.value,
-            "data": description,
-            "metadata": {"tool_name": tool_name},
-        }),
+        "data": json.dumps(
+            {
+                "event": event_type.value,
+                "data": description,
+                "metadata": {"tool_name": tool_name},
+            }
+        ),
     }

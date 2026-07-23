@@ -13,8 +13,8 @@ Run with:
 from __future__ import annotations
 
 import logging
-from collections.abc import AsyncGenerator
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
+from typing import TYPE_CHECKING, Any
 
 from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
@@ -27,6 +27,9 @@ from backend.core.logging_config import (
     correlation_id_var,
     generate_correlation_id,
 )
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncGenerator
 
 
 @asynccontextmanager
@@ -130,10 +133,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # Cancel cleanup task
     if cleanup_task is not None:
         cleanup_task.cancel()
-        try:
+        with suppress(asyncio.CancelledError):
             await cleanup_task
-        except asyncio.CancelledError:
-            pass
 
     await close_redis()
     await close_database()
@@ -189,7 +190,7 @@ def create_app() -> FastAPI:
 
     # Correlation ID middleware
     @app.middleware("http")
-    async def correlation_id_middleware(request: Request, call_next) -> Response:
+    async def correlation_id_middleware(request: Request, call_next: Any) -> Response:
         """Inject correlation ID into request/response cycle."""
         cid = request.headers.get("X-Correlation-ID", generate_correlation_id())
         correlation_id_var.set(cid)
@@ -239,7 +240,7 @@ def run() -> None:
     settings = get_settings()
     uvicorn.run(
         "backend.main:app",
-        host="0.0.0.0",
+        host="0.0.0.0",  # noqa: S104
         port=8000,
         reload=not settings.is_production,
         log_level=settings.log_level.lower(),

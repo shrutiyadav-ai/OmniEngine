@@ -2,17 +2,17 @@
 Unit tests for the Dynamic Model Router.
 """
 
-from backend.agents.model_router import ModelRouter, MODEL_REGISTRY
+from backend.agents.model_router import MODEL_REGISTRY, ModelRouter
 
 
-def test_model_registry_specs():
+def test_model_registry_specs() -> None:
     """Verify built-in models exist in registry."""
     assert "gpt-4o" in MODEL_REGISTRY
     assert "claude-sonnet-4-20250514" in MODEL_REGISTRY
     assert "gemini-1.5-pro" in MODEL_REGISTRY
 
 
-def test_model_selection_fallback():
+def test_model_selection_fallback() -> None:
     """Test model router selection logic under defaults."""
     router = ModelRouter()
     # When keys are dummy, selection falls back to available models or raises ModelRoutingError gracefully

@@ -21,7 +21,10 @@ class VisionInput(BaseModel):
     """Input schema for vision analysis."""
 
     image_url: str = Field(..., description="URL or base64 data URI of the image")
-    prompt: str = Field("Describe and analyze this image in detail.", description="Prompt instructions for vision model")
+    prompt: str = Field(
+        "Describe and analyze this image in detail.",
+        description="Prompt instructions for vision model",
+    )
 
 
 class VisionAnalyzerTool(BaseTool):
@@ -31,7 +34,12 @@ class VisionAnalyzerTool(BaseTool):
     description = "Analyzes images, diagrams, charts, and OCR text from visual attachments."
     args_schema = VisionInput
 
-    async def execute(self, image_url: str, prompt: str = "Describe and analyze this image in detail.", **kwargs: Any) -> str:
+    async def execute(  # type: ignore[override]
+        self,
+        image_url: str,
+        prompt: str = "Describe and analyze this image in detail.",
+        **kwargs: Any,
+    ) -> str:
         """Execute vision analysis using vision-capable model."""
         try:
             router = ModelRouter()

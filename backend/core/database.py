@@ -9,8 +9,8 @@ high-concurrency agentic workloads.
 from __future__ import annotations
 
 import logging
-from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from typing import TYPE_CHECKING
 
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
@@ -20,6 +20,9 @@ from sqlalchemy.ext.asyncio import (
 )
 
 from backend.core.config import get_settings
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncGenerator
 
 logger = logging.getLogger(__name__)
 
@@ -33,18 +36,14 @@ _async_session_factory: async_sessionmaker[AsyncSession] | None = None
 def get_engine() -> AsyncEngine:
     """Return the global async engine. Raises if not initialized."""
     if _engine is None:
-        raise RuntimeError(
-            "Database engine not initialized. Call init_database() first."
-        )
+        raise RuntimeError("Database engine not initialized. Call init_database() first.")
     return _engine
 
 
 def get_session_factory() -> async_sessionmaker[AsyncSession]:
     """Return the global session factory. Raises if not initialized."""
     if _async_session_factory is None:
-        raise RuntimeError(
-            "Session factory not initialized. Call init_database() first."
-        )
+        raise RuntimeError("Session factory not initialized. Call init_database() first.")
     return _async_session_factory
 
 
@@ -98,9 +97,7 @@ async def init_database() -> AsyncEngine:
 
     # Verify connectivity
     async with _engine.begin() as conn:
-        await conn.execute(
-            __import__("sqlalchemy").text("SELECT 1")
-        )
+        await conn.execute(__import__("sqlalchemy").text("SELECT 1"))
     logger.info("Database connection verified successfully")
 
     return _engine

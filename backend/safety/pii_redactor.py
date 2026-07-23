@@ -43,7 +43,7 @@ class PIIRedactor:
             try:
                 results = self.analyzer.analyze(text=text, language="en")
                 anonymized = self.anonymizer.anonymize(text=text, analyzer_results=results)
-                return anonymized.text
+                return str(anonymized.text)
             except Exception as e:
                 logger.warning("Presidio redaction failed, using regex: %s", str(e))
 
@@ -51,5 +51,4 @@ class PIIRedactor:
         redacted = EMAIL_REGEX.sub("[REDACTED_EMAIL]", text)
         redacted = PHONE_REGEX.sub("[REDACTED_PHONE]", redacted)
         redacted = SSN_REGEX.sub("[REDACTED_SSN]", redacted)
-        redacted = CREDIT_CARD_REGEX.sub("[REDACTED_CARD]", redacted)
-        return redacted
+        return CREDIT_CARD_REGEX.sub("[REDACTED_CARD]", redacted)

@@ -9,9 +9,10 @@ from __future__ import annotations
 
 import logging
 from abc import ABC, abstractmethod
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from pydantic import BaseModel
+if TYPE_CHECKING:
+    from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
 
@@ -48,11 +49,13 @@ class ToolRegistry:
         """Return MCP-compatible manifests for all registered tools."""
         manifests = []
         for tool in self._tools.values():
-            manifests.append({
-                "name": tool.name,
-                "description": tool.description,
-                "parameters": tool.args_schema.model_json_schema(),
-            })
+            manifests.append(
+                {
+                    "name": tool.name,
+                    "description": tool.description,
+                    "parameters": tool.args_schema.model_json_schema(),
+                }
+            )
         return manifests
 
 
@@ -72,24 +75,28 @@ def _register_default_tools(registry: ToolRegistry) -> None:
     """Register built-in tools."""
     try:
         from backend.tools.web_search import WebSearchTool
+
         registry.register(WebSearchTool())
     except Exception as e:
         logger.warning("Failed to register WebSearchTool: %s", str(e))
 
     try:
         from backend.tools.code_interpreter import CodeInterpreterTool
+
         registry.register(CodeInterpreterTool())
     except Exception as e:
         logger.warning("Failed to register CodeInterpreterTool: %s", str(e))
 
     try:
         from backend.tools.vision_analyzer import VisionAnalyzerTool
+
         registry.register(VisionAnalyzerTool())
     except Exception as e:
         logger.warning("Failed to register VisionAnalyzerTool: %s", str(e))
 
     try:
         from backend.tools.calendar_agent import CalendarAgentTool
+
         registry.register(CalendarAgentTool())
     except Exception as e:
         logger.warning("Failed to register CalendarAgentTool: %s", str(e))
